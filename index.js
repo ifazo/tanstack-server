@@ -5,7 +5,6 @@ import cors from "cors";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
-import Stripe from "stripe";
 import { Server } from "socket.io";
 
 const app = express();
@@ -15,7 +14,6 @@ dotenv.config();
 
 const port = process.env.PORT;
 const uri = process.env.MONGODB_URI;
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -69,14 +67,14 @@ io.on("connection", (socket) => {
       const chatMessage = {
         id: Date.now() + Math.random(),
         message,
-        userName: user.userName,
-        userEmail: user.userEmail,
+        userName: userName,
+        userEmail: userEmail,
         timestamp: timestamp || new Date(),
         socketId: socket.id,
       };
 
       io.emit("receive_message", chatMessage);
-      console.log(`Message from ${user.userName}: ${message}`);
+      console.log(`Message from ${userName}: ${message}`);
     }
   });
 
@@ -125,17 +123,15 @@ io.on("connection", (socket) => {
       const chatMessage = {
         id: Date.now() + Math.random(),
         message,
-        userName: user.userName,
-        userEmail: user.userEmail,
+        userName: userName,
+        userEmail: userEmail,
         roomId,
         timestamp: timestamp || new Date(),
         socketId: socket.id,
       };
 
       io.to(roomId).emit("receive_room_message", chatMessage);
-      console.log(
-        `Room message from ${user.userName} in ${roomId}: ${message}`
-      );
+      console.log(`Room message from ${userName} in ${roomId}: ${message}`);
     }
   });
 
@@ -161,14 +157,14 @@ io.on("connection", (socket) => {
 });
 
 const authMiddleware = (req, res, next) => {
-  const token = req.headers.authorization?.split(" ")[1];
-  if (!token) {
-    return res
-      .status(401)
-      .send({ error: true, message: "Unauthorized access" });
-  }
-  const secret = process.env.JWT_SECRET_TOKEN;
   try {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) {
+      return res
+        .status(401)
+        .send({ error: true, message: "Unauthorized access" });
+    }
+    const secret = process.env.JWT_SECRET_TOKEN;
     jwt.verify(token, secret);
     next();
   } catch (error) {
@@ -180,17 +176,18 @@ const sendResponse = (res, status, data) => {
   res.status(status).send(data);
 };
 
-const errorHandler = (err, _req, res, _next) => {
+const errorHandler = (res, status, err) => {
   console.error(err.message);
-  sendResponse(res, 500, { error: true, message: "Internal Server Error" });
+  res
+    .status(status || 500)
+    .send({ error: true, message: err.message || "Internal Server Error" });
 };
 
 async function run() {
   const db = client.db(process.env.MONGODB_DB);
   const userCollection = db.collection("users");
-  const productCollection = db.collection("products");
-  const categoryCollection = db.collection("categories");
-  const orderCollection = db.collection("orders");
+  const postCollection = db.collection("posts");
+  const chatCollection = db.collection("chats");
 
   app.get("/", (_req, res) => {
     sendResponse(res, 200, "Welcome to the Tanstack Server!");
@@ -200,100 +197,27 @@ async function run() {
     sendResponse(res, 200, { message: "Tanstack Server api is running!" });
   });
 
-  app.get("/api/payment", async (req, res, next) => {
-    const { id } = req.query;
-    if (!id) {
-      return res.status(400).json({ error: "Missing session ID" });
-    }
-    try {
-      const session = await stripe.checkout.sessions.retrieve(id, {
-        expand: ["line_items", "customer_details", "payment_intent"],
-      });
-
-      sendResponse(res, 200, session);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/payment", async (req, res, next) => {
-    const { products, name, email } = req.body;
-    const customer = await stripe.customers.create({
-      email,
-      name,
-    });
-    const items = products.map((product) => ({
-      price_data: {
-        currency: "usd",
-        product_data: {
-          images: [product.thumbnail],
-          name: product.title,
-        },
-        unit_amount: Math.round(parseFloat(product.price) * 100),
-      },
-      quantity: product.quantity,
-    }));
-    try {
-      const session = await stripe.checkout.sessions.create({
-        payment_method_types: ["card"],
-        line_items: items,
-        mode: "payment",
-        customer: customer.id,
-        success_url: `${req.headers.origin}/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${req.headers.origin}/cancel`,
-      });
-      if (!session) {
-        return res.status(400).json({ error: "Session not created" });
-      } else {
-        const order = {
-          user: name,
-          email,
-          products,
-          total: products.reduce(
-            (acc, product) => acc + product.price * product.quantity,
-            0
-          ),
-          status: "paid",
-          createdAt: new Date(),
-        };
-        await orderCollection.insertOne(order);
-      }
-      sendResponse(res, 200, { id: session.id });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/orders", async (req, res) => {
-    const { email } = req.query;
-    if (!email) {
-      return res.status(400).json({ error: "Missing email" });
-    }
-    try {
-      const orders = await orderCollection.find({ email }).toArray();
-      sendResponse(res, 200, orders);
-    } catch (error) {
-      next(error);
-    }
-  });
-
   app.post("/api/token", async (req, res) => {
-    const data = req.body;
-    const user = await userCollection.findOne({ email: data.email });
-    if (!user) {
-      return sendResponse(res, 400, {
-        error: true,
-        message: "User does not exist",
-      });
+    try {
+      const data = req.body;
+      const user = await userCollection.findOne({ email: data.email });
+      if (!user) {
+        return sendResponse(res, 400, {
+          error: true,
+          message: "User does not exist",
+        });
+      }
+      const payload = {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+      };
+      const JWToken = process.env.JWT_SECRET_TOKEN;
+      const token = jwt.sign(payload, JWToken);
+      sendResponse(res, 200, { token });
+    } catch (error) {
+      next(error);
     }
-    const payload = {
-      id: user._id,
-      name: user.name,
-      email: user.email,
-    };
-    const JWToken = process.env.JWT_SECRET_TOKEN;
-    const token = jwt.sign(payload, JWToken);
-    sendResponse(res, 200, { token });
   });
 
   app.post("/api/auth/signin", async (req, res) => {
@@ -326,8 +250,8 @@ async function run() {
   });
 
   app.post("/api/auth/signup", async (req, res) => {
-    const { name, email, password } = req.body;
     try {
+      const { name, email, password } = req.body;
       const existingUser = await userCollection.findOne({ email });
       if (existingUser) {
         return sendResponse(res, 400, {
@@ -366,8 +290,8 @@ async function run() {
   });
 
   app.get("/api/users/:id", authMiddleware, async (req, res) => {
-    const { id } = req.params;
     try {
+      const { id } = req.params;
       const user = await userCollection.findOne({ _id: new ObjectId(id) });
       sendResponse(res, 200, user);
     } catch (error) {
@@ -376,9 +300,9 @@ async function run() {
   });
 
   app.patch("/api/users/:id", authMiddleware, async (req, res) => {
-    const { id } = req.params;
-    const user = req.body;
     try {
+      const { id } = req.params;
+      const user = req.body;
       const result = await userCollection.updateOne(
         { _id: new ObjectId(id) },
         { $set: user }
@@ -390,8 +314,8 @@ async function run() {
   });
 
   app.delete("/api/users/:id", authMiddleware, async (req, res) => {
-    const { id } = req.params;
     try {
+      const { id } = req.params;
       const result = await userCollection.deleteOne({
         _id: new ObjectId(id),
       });
@@ -401,40 +325,43 @@ async function run() {
     }
   });
 
-  app.get("/api/categories", async (_req, res) => {
+  app.get("/api/chats/:userId", async (req, res) => {
     try {
-      const categories = await categoryCollection.find().toArray();
-      sendResponse(res, 200, categories);
+      const { userId } = req.params;
+      const chats = await chatCollection.find({ userId }).toArray();
+      sendResponse(res, 200, chats);
     } catch (error) {
       next(error);
     }
   });
 
-  app.get("/api/categories/random", async (_req, res) => {
+  app.post("/api/chats", async (req, res) => {
     try {
-      const categories = await categoryCollection
-        .aggregate([{ $sample: { size: 5 } }])
-        .toArray();
-      sendResponse(res, 200, categories);
+      const chat = req.body;
+      const result = await chatCollection.insertOne(chat);
+      sendResponse(res, 201, result);
     } catch (error) {
       next(error);
     }
   });
 
-  app.get("/api/categories/:category", async (req, res) => {
-    const { category } = req.params;
+  app.patch("/api/chats/:id", async (req, res) => {
     try {
-      const products = await productCollection.find({ category }).toArray();
-      sendResponse(res, 200, products);
+      const { id } = req.params;
+      const chat = req.body;
+      const result = await chatCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: chat }
+      );
+      sendResponse(res, 200, result);
     } catch (error) {
       next(error);
     }
   });
 
-  app.get("/api/products", async (req, res) => {
-    const { search, category, price, rating, skip, limit, sort, sortBy } =
-      req.query;
+  app.get("/api/posts", async (req, res) => {
     try {
+      const { search, skip, limit, sort, sortBy } = req.query;
       let query = {};
 
       if (search) {
@@ -444,22 +371,8 @@ async function run() {
         ];
       }
 
-      if (category) {
-        query.category = category;
-      }
-
-      if (price) {
-        const priceLimit = parseInt(price);
-        query.price = { $lte: priceLimit };
-      }
-
-      if (rating) {
-        const ratingValue = parseInt(rating);
-        query.rating = { $gte: ratingValue };
-      }
-
-      const totalProducts = await productCollection.countDocuments(query);
-      let cursor = productCollection.find(query);
+      const totalPosts = await postCollection.countDocuments(query);
+      let cursor = postCollection.find(query);
 
       cursor = cursor.skip(parseInt(skip)).limit(parseInt(limit));
 
@@ -471,73 +384,62 @@ async function run() {
 
       const products = await cursor.toArray();
 
-      sendResponse(res, 200, { products, totalProducts });
+      sendResponse(res, 200, { products, totalPosts });
     } catch (error) {
       console.error(error);
       sendResponse(res, 500, { message: "Internal Server Error" });
     }
   });
 
-  app.get("/api/products/random", async (_req, res) => {
+  app.get("/api/posts/:id", async (req, res) => {
     try {
-      const products = await productCollection
-        .aggregate([{ $sample: { size: 5 } }])
-        .toArray();
-      sendResponse(res, 200, products);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/products/:id", async (req, res) => {
-    const { id } = req.params;
-    try {
-      const product = await productCollection.findOne({
+      const { id } = req.params;
+      const post = await postCollection.findOne({
         _id: new ObjectId(id),
       });
-      sendResponse(res, 200, product);
+      sendResponse(res, 200, post);
     } catch (error) {
       next(error);
     }
   });
 
-  app.post("/api/products", authMiddleware, async (req, res) => {
-    const product = req.body;
-    const token = req.headers.authorization?.split(" ")[1];
-    const JWTtoken = process.env.JWT_SECRET_TOKEN;
-    const decodedToken = jwt.verify(token, JWTtoken);
-    const { role } = decodedToken;
-    if (role !== "admin") {
-      return sendResponse(res, 403, {
-        error: true,
-        message: "Unauthorized access",
-      });
-    }
+  app.post("/api/posts", authMiddleware, async (req, res) => {
     try {
-      const result = await productCollection.insertOne(product);
+      const post = req.body;
+      const token = req.headers.authorization?.split(" ")[1];
+      const JWTtoken = process.env.JWT_SECRET_TOKEN;
+      const decodedToken = jwt.verify(token, JWTtoken);
+      const { role } = decodedToken;
+      if (role !== "admin") {
+        return sendResponse(res, 403, {
+          error: true,
+          message: "Unauthorized access",
+        });
+      }
+      const result = await postCollection.insertOne(post);
       sendResponse(res, 201, result);
     } catch (error) {
       next(error);
     }
   });
 
-  app.patch("/api/products/:id", authMiddleware, async (req, res) => {
-    const product = req.body;
-    const { id } = req.params;
-    const token = req.headers.authorization?.split(" ")[1];
-    const JWTtoken = process.env.JWT_SECRET_TOKEN;
-    const decodedToken = jwt.verify(token, JWTtoken);
-    const { role } = decodedToken;
-    if (role !== "admin") {
-      return sendResponse(res, 403, {
-        error: true,
-        message: "Unauthorized access",
-      });
-    }
+  app.patch("/api/posts/:id", authMiddleware, async (req, res) => {
     try {
-      const result = await productCollection.updateOne(
+      const post = req.body;
+      const { id } = req.params;
+      const token = req.headers.authorization?.split(" ")[1];
+      const JWTtoken = process.env.JWT_SECRET_TOKEN;
+      const decodedToken = jwt.verify(token, JWTtoken);
+      const { role } = decodedToken;
+      if (role !== "admin") {
+        return sendResponse(res, 403, {
+          error: true,
+          message: "Unauthorized access",
+        });
+      }
+      const result = await postCollection.updateOne(
         { _id: new ObjectId(id) },
-        { $set: product }
+        { $set: post }
       );
       sendResponse(res, 200, result);
     } catch (error) {
@@ -545,20 +447,20 @@ async function run() {
     }
   });
 
-  app.delete("/api/products/:id", authMiddleware, async (req, res) => {
-    const { id } = req.params;
-    const token = req.headers.authorization?.split(" ")[1];
-    const JWTtoken = process.env.JWT_SECRET_TOKEN;
-    const decodedToken = jwt.verify(token, JWTtoken);
-    const { role } = decodedToken;
-    if (role !== "admin") {
-      return sendResponse(res, 403, {
-        error: true,
-        message: "Unauthorized access",
-      });
-    }
+  app.delete("/api/posts/:id", authMiddleware, async (req, res) => {
     try {
-      const result = await productCollection.deleteOne({
+      const { id } = req.params;
+      const token = req.headers.authorization?.split(" ")[1];
+      const JWTtoken = process.env.JWT_SECRET_TOKEN;
+      const decodedToken = jwt.verify(token, JWTtoken);
+      const { role } = decodedToken;
+      if (role !== "admin") {
+        return sendResponse(res, 403, {
+          error: true,
+          message: "Unauthorized access",
+        });
+      }
+      const result = await postCollection.deleteOne({
         _id: new ObjectId(id),
       });
       sendResponse(res, 200, result);
@@ -567,47 +469,46 @@ async function run() {
     }
   });
 
-  app.get("/api/reviews/:productId", async (req, res, next) => {
-    const { productId } = req.params;
+  app.get("/api/comments/:postId", async (req, res, next) => {
     try {
-      const product = await productCollection.findOne({
-        _id: new ObjectId(productId),
+      const { postId } = req.params;
+      const post = await postCollection.findOne({
+        _id: new ObjectId(postId),
       });
-      if (!product) {
-        return res.status(404).json({ message: "Product not found." });
+      if (!post) {
+        return res.status(404).json({ message: "post not found." });
       }
-      const reviews = product.reviews || [];
-      sendResponse(res, 200, reviews);
+      const comments = post.comments || [];
+      sendResponse(res, 200, comments);
     } catch (error) {
       next(error);
     }
   });
 
-  app.post("/api/reviews/:productId", async (req, res, next) => {
-    const { productId } = req.params;
-    const { rating, comment, reviewerName, reviewerEmail } = req.body;
-    if (!rating || !comment || !reviewerName || !reviewerEmail) {
-      return res.status(400).json({
-        message:
-          "All fields are required: rating, comment, reviewerName, reviewerEmail.",
-      });
-    }
-    const newReview = {
-      rating,
-      comment,
-      date: new Date(),
-      reviewerName,
-      reviewerEmail,
-    };
+  app.post("/api/comments/:postId", async (req, res, next) => {
     try {
-      const result = await productCollection.updateOne(
-        { _id: new ObjectId(productId) },
-        { $push: { reviews: newReview } }
+      const { postId } = req.params;
+      const { comment, userName, userEmail } = req.body;
+      if (!comment || !userName || !userEmail) {
+        return res.status(400).json({
+          message:
+            "All fields are required: comment, userName, userEmail.",
+        });
+      }
+      const newComment = {
+        comment,
+        userName,
+        userEmail,
+        date: new Date(),
+      };
+      const result = await postCollection.updateOne(
+        { _id: new ObjectId(postId) },
+        { $push: { comments: newComment } }
       );
       if (result.modifiedCount === 0) {
         return res
           .status(404)
-          .json({ message: "Product not found or review not added." });
+          .json({ message: "post not found or comment not added." });
       }
       sendResponse(res, 200, result);
     } catch (error) {
@@ -615,40 +516,40 @@ async function run() {
     }
   });
 
-  app.patch("/api/reviews/:productId", async (req, res, next) => {
-    const { productId } = req.params;
-    const { rating, comment, reviewerEmail } = req.body;
-    if (!reviewerEmail || (!rating && !comment)) {
-      return res.status(400).json({
-        message:
-          "Missing required fields: reviewerEmail and at least one of rating or comment.",
-      });
-    }
+  app.patch("/api/comments/:postId", async (req, res, next) => {
     try {
-      const product = await productCollection.findOne({
-        _id: new ObjectId(productId),
-      });
-      if (!product) {
-        return res.status(404).json({ message: "Product not found." });
+      const { postId } = req.params;
+      const { comment, userEmail } = req.body;
+      if (!userEmail || !comment) {
+        return res.status(400).json({
+          message:
+            "Missing required fields: userEmail and at least one of comment.",
+        });
       }
-      const review = product.reviews?.find(
-        (rev) => rev.reviewerEmail === reviewerEmail
+      const post = await postCollection.findOne({
+        _id: new ObjectId(postId),
+      });
+      if (!post) {
+        return res.status(404).json({ message: "post not found." });
+      }
+      const findComment = post.comments?.find(
+        (rev) => rev.userEmail === userEmail
       );
-      if (!review) {
-        return res.status(404).json({ message: "Review not found." });
+      if (!findComment) {
+        return res.status(404).json({ message: "Comment not found." });
       }
       const updateFields = {};
-      if (rating) updateFields["reviews.$[review].rating"] = rating;
-      if (comment) updateFields["reviews.$[review].comment"] = comment;
-      const result = await productCollection.updateOne(
-        { _id: new ObjectId(productId) },
+      if (rating) updateFields["comments.$[comment].rating"] = rating;
+      if (comment) updateFields["comments.$[comment].comment"] = comment;
+      const result = await postCollection.updateOne(
+        { _id: new ObjectId(postId) },
         { $set: updateFields },
         {
-          arrayFilters: [{ "review.reviewerEmail": reviewerEmail }],
+          arrayFilters: [{ "comment.userEmail": userEmail }],
         }
       );
       if (result.modifiedCount === 0) {
-        return res.status(404).json({ message: "Failed to update review." });
+        return res.status(404).json({ message: "Failed to update comment." });
       }
       sendResponse(res, 200, result);
     } catch (error) {
@@ -656,33 +557,33 @@ async function run() {
     }
   });
 
-  app.delete("/api/reviews/:productId", async (req, res, next) => {
-    const { productId } = req.params;
-    const { reviewerEmail } = req.body;
-
-    if (!reviewerEmail) {
-      return res.status(400).json({ message: "Missing reviewerEmail." });
-    }
-
+  app.delete("/api/comments/:postId", async (req, res, next) => {
     try {
-      const product = await productCollection.findOne({
-        _id: new ObjectId(productId),
+      const { postId } = req.params;
+      const { userEmail } = req.body;
+
+      if (!userEmail) {
+        return res.status(400).json({ message: "Missing userEmail." });
+      }
+
+      const post = await postCollection.findOne({
+        _id: new ObjectId(postId),
       });
-      if (!product) {
-        return res.status(404).json({ message: "Product not found." });
+      if (!post) {
+        return res.status(404).json({ message: "post not found." });
       }
-      const reviewIndex = product.reviews?.findIndex(
-        (rev) => rev.reviewerEmail === reviewerEmail
+      const commentIndex = post.comments?.findIndex(
+        (rev) => rev.userEmail === userEmail
       );
-      if (reviewIndex === -1) {
-        return res.status(404).json({ message: "Review not found." });
+      if (commentIndex === -1) {
+        return res.status(404).json({ message: "comment not found." });
       }
-      const result = await productCollection.updateOne(
-        { _id: new ObjectId(productId) },
-        { $pull: { reviews: { reviewerEmail: reviewerEmail } } }
+      const result = await postCollection.updateOne(
+        { _id: new ObjectId(postId) },
+        { $pull: { comments: { userEmail: userEmail } } }
       );
       if (result.modifiedCount === 0) {
-        return res.status(404).json({ message: "Failed to delete review." });
+        return res.status(404).json({ message: "Failed to delete comment." });
       }
       sendResponse(res, 200, result);
     } catch (error) {

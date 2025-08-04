@@ -23,6 +23,22 @@ const client = new MongoClient(uri, {
   },
 });
 
+const authMiddleware = (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) {
+      return res
+        .status(401)
+        .send({ success: false, error: "Unauthorized access" });
+    }
+    const secret = process.env.JWT_SECRET_TOKEN;
+    jwt.verify(token, secret);
+    next();
+  } catch (error) {
+    return res.status(401).send({ success: false, error: error.message });
+  }
+};
+
 const server = app.listen(port, () => {
   console.log(`Tanstack Server listening on port ${port}`);
 });
@@ -156,33 +172,6 @@ io.on("connection", (socket) => {
   });
 });
 
-const authMiddleware = (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(" ")[1];
-    if (!token) {
-      return res
-        .status(401)
-        .send({ error: true, message: "Unauthorized access" });
-    }
-    const secret = process.env.JWT_SECRET_TOKEN;
-    jwt.verify(token, secret);
-    next();
-  } catch (error) {
-    return res.status(401).send({ error: true, message: error.message });
-  }
-};
-
-const sendResponse = (res, status, data) => {
-  res.status(status).send(data);
-};
-
-const errorHandler = (res, status, err) => {
-  console.error(err.message);
-  res
-    .status(status || 500)
-    .send({ error: true, message: err.message || "Internal Server Error" });
-};
-
 async function run() {
   const db = client.db(process.env.MONGODB_DB);
   const userCollection = db.collection("users");
@@ -190,21 +179,21 @@ async function run() {
   const chatCollection = db.collection("chats");
 
   app.get("/", (_req, res) => {
-    sendResponse(res, 200, "Welcome to the Tanstack Server!");
+    res.status(200).send("Welcome to Tanstack Server!");
   });
 
   app.get("/api", (_req, res) => {
-    sendResponse(res, 200, { message: "Tanstack Server api is running!" });
+    res.status(200).send({ message: "Tanstack Server api is running!" });
   });
 
-  app.post("/api/token", async (req, res) => {
+  app.post("/api/token", async (req, res, next) => {
     try {
       const data = req.body;
       const user = await userCollection.findOne({ email: data.email });
       if (!user) {
-        return sendResponse(res, 400, {
-          error: true,
-          message: "User does not exist",
+        return res.status(400).send({
+          success: false,
+          error: "User does not exist",
         });
       }
       const payload = {
@@ -214,27 +203,27 @@ async function run() {
       };
       const JWToken = process.env.JWT_SECRET_TOKEN;
       const token = jwt.sign(payload, JWToken);
-      sendResponse(res, 200, { token });
+      res.status(200).send({ token });
     } catch (error) {
       next(error);
     }
   });
 
-  app.post("/api/auth", async (req, res) => {
+  app.post("/api/auth", async (req, res, next) => {
     try {
       const { email, password } = req.body;
       const user = await userCollection.findOne({ email });
       if (!user) {
-        return sendResponse(res, 400, {
-          error: true,
-          message: "User does not exist",
+        return res.status(400).send({
+          success: false,
+          error: "User does not exist",
         });
       }
       const isPasswordCorrect = await bcrypt.compare(password, user?.password);
       if (!isPasswordCorrect) {
-        return sendResponse(res, 400, {
-          error: true,
-          message: "Password is incorrect",
+        return res.status(400).send({
+          success: false,
+          error: "Password is incorrect",
         });
       }
       const payload = {
@@ -243,57 +232,57 @@ async function run() {
       };
       const JWTtoken = process.env.JWT_SECRET_TOKEN;
       const token = jwt.sign(payload, JWTtoken);
-      sendResponse(res, 200, { token });
+      res.status(200).send({ token });
     } catch (error) {
       next(error);
     }
   });
 
-  app.post("/api/users", async (req, res) => {
+  app.post("/api/users", async (req, res, next) => {
     try {
       const { name, email, password } = req.body;
       const existingUser = await userCollection.findOne({ email });
       if (existingUser) {
-        return sendResponse(res, 400, {
-          error: true,
-          message: "User already exists",
+        return res.status(400).send({
+          success: false,
+          error: "User already exists",
         });
       }
       const hashedPassword = await bcrypt.hash(password, 10);
       const user = { name, email, password: hashedPassword };
       const createUser = await userCollection.insertOne(user);
-      if (!createUser) {
-        return sendResponse(res, 400, {
-          error: true,
-          message: "User not created",
+      if (!createUser.acknowledged) {
+        return res.status(400).send({
+          success: false,
+          error: "User not created",
         });
       }
-      sendResponse(res, 201, createUser);
+      res.status(201).send(createUser);
     } catch (error) {
       next(error);
     }
   });
 
-  app.get("/api/users", authMiddleware, async (_req, res) => {
+  app.get("/api/users", authMiddleware, async (_req, res, next) => {
     try {
       const users = await userCollection.find().toArray();
-      sendResponse(res, 200, users);
+      res.status(200).send(users);
     } catch (error) {
       next(error);
     }
   });
 
-  app.get("/api/users/:id", authMiddleware, async (req, res) => {
+  app.get("/api/users/:id", authMiddleware, async (req, res, next) => {
     try {
       const { id } = req.params;
       const user = await userCollection.findOne({ _id: new ObjectId(id) });
-      sendResponse(res, 200, user);
+      res.status(200).send(user);
     } catch (error) {
       next(error);
     }
   });
 
-  app.patch("/api/users/:id", authMiddleware, async (req, res) => {
+  app.patch("/api/users/:id", authMiddleware, async (req, res, next) => {
     try {
       const { id } = req.params;
       const user = req.body;
@@ -301,45 +290,63 @@ async function run() {
         { _id: new ObjectId(id) },
         { $set: user }
       );
-      sendResponse(res, 200, result);
+      if (!result.acknowledged) {
+        return res.status(400).send({
+          success: false,
+          error: "User not updated",
+        });
+      }
+      res.status(200).send(result);
     } catch (error) {
       next(error);
     }
   });
 
-  app.delete("/api/users/:id", authMiddleware, async (req, res) => {
+  app.delete("/api/users/:id", authMiddleware, async (req, res, next) => {
     try {
       const { id } = req.params;
       const result = await userCollection.deleteOne({
         _id: new ObjectId(id),
       });
-      sendResponse(res, 200, result);
+      if (!result.acknowledged) {
+        return res.status(400).send({
+          success: false,
+          error: "User not deleted",
+        });
+      }
+      res.status(200).send(result);
     } catch (error) {
       next(error);
     }
   });
 
-  app.get("/api/chats/:userId", async (req, res) => {
+  app.get("/api/chats/:userId", async (req, res, next) => {
     try {
       const { userId } = req.params;
       const chats = await chatCollection.find({ userId }).toArray();
-      sendResponse(res, 200, chats);
+      res.status(200).send(chats);
     } catch (error) {
       next(error);
     }
   });
 
-  app.post("/api/chats", async (req, res) => {
+  app.post("/api/chats", async (req, res, next) => {
     try {
       const chat = req.body;
       const result = await chatCollection.insertOne(chat);
-      sendResponse(res, 201, result);
+      if (!result.acknowledged) {
+        return res.status(400).send({
+          success: false,
+          error: "Chat not created",
+        });
+      }
+      res.status(201).send(result);
     } catch (error) {
       next(error);
     }
   });
 
-  app.patch("/api/chats/:id", async (req, res) => {
+  app.patch("/api/chats/:id", async (req, res, next) => {
     try {
       const { id } = req.params;
       const chat = req.body;
@@ -347,13 +354,19 @@ async function run() {
         { _id: new ObjectId(id) },
         { $set: chat }
       );
-      sendResponse(res, 200, result);
+      if (!result.acknowledged) {
+        return res.status(400).send({
+          success: false,
+          error: "Chat not updated",
+        });
+      }
+      res.status(200).send(result);
     } catch (error) {
       next(error);
     }
   });
 
-  app.get("/api/posts", async (req, res) => {
+  app.get("/api/posts", async (req, res, next) => {
     try {
       const { search, skip, limit, sort, sortBy } = req.query;
       let query = {};
@@ -376,28 +389,27 @@ async function run() {
         cursor = cursor.sort(sortFields);
       }
 
-      const products = await cursor.toArray();
+      const posts = await cursor.toArray();
 
-      sendResponse(res, 200, { products, totalPosts });
+      res.status(200).send({ totalPosts, posts });
     } catch (error) {
-      console.error(error);
-      sendResponse(res, 500, { message: "Internal Server Error" });
+      next(error);
     }
   });
 
-  app.get("/api/posts/:id", async (req, res) => {
+  app.get("/api/posts/:id", async (req, res, next) => {
     try {
       const { id } = req.params;
       const post = await postCollection.findOne({
         _id: new ObjectId(id),
       });
-      sendResponse(res, 200, post);
+      res.status(200).send(post);
     } catch (error) {
       next(error);
     }
   });
 
-  app.post("/api/posts", authMiddleware, async (req, res) => {
+  app.post("/api/posts", authMiddleware, async (req, res, next) => {
     try {
       const post = req.body;
       const token = req.headers.authorization?.split(" ")[1];
@@ -405,19 +417,25 @@ async function run() {
       const decodedToken = jwt.verify(token, JWTtoken);
       const { role } = decodedToken;
       if (role !== "admin") {
-        return sendResponse(res, 403, {
-          error: true,
-          message: "Unauthorized access",
+        return res.status(403).send({
+          success: false,
+          error: "Unauthorized access",
         });
       }
       const result = await postCollection.insertOne(post);
-      sendResponse(res, 201, result);
+      if (!result.acknowledged) {
+        return res.status(400).send({
+          success: false,
+          error: "Post not created",
+        });
+      }
+      res.status(201).send(result);
     } catch (error) {
       next(error);
     }
   });
 
-  app.patch("/api/posts/:id", authMiddleware, async (req, res) => {
+  app.patch("/api/posts/:id", authMiddleware, async (req, res, next) => {
     try {
       const post = req.body;
       const { id } = req.params;
@@ -426,22 +444,28 @@ async function run() {
       const decodedToken = jwt.verify(token, JWTtoken);
       const { role } = decodedToken;
       if (role !== "admin") {
-        return sendResponse(res, 403, {
-          error: true,
-          message: "Unauthorized access",
+        return res.status(403).send({
+          success: false,
+          error: "Unauthorized access",
         });
       }
       const result = await postCollection.updateOne(
         { _id: new ObjectId(id) },
         { $set: post }
       );
-      sendResponse(res, 200, result);
+      if (!result.acknowledged) {
+        return res.status(400).send({
+          success: false,
+          error: "Post not updated",
+        });
+      }
+      res.status(200).send(result);
     } catch (error) {
       next(error);
     }
   });
 
-  app.delete("/api/posts/:id", authMiddleware, async (req, res) => {
+  app.delete("/api/posts/:id", authMiddleware, async (req, res, next) => {
     try {
       const { id } = req.params;
       const token = req.headers.authorization?.split(" ")[1];
@@ -449,15 +473,21 @@ async function run() {
       const decodedToken = jwt.verify(token, JWTtoken);
       const { role } = decodedToken;
       if (role !== "admin") {
-        return sendResponse(res, 403, {
-          error: true,
-          message: "Unauthorized access",
+        return res.status(403).send({
+          success: false,
+          error: "Unauthorized access",
         });
       }
       const result = await postCollection.deleteOne({
         _id: new ObjectId(id),
       });
-      sendResponse(res, 200, result);
+      if (!result.acknowledged) {
+        return res.status(400).send({
+          success: false,
+          error: "Post not deleted",
+        });
+      }
+      res.status(200).send(result);
     } catch (error) {
       next(error);
     }
@@ -470,10 +500,12 @@ async function run() {
         _id: new ObjectId(postId),
       });
       if (!post) {
-        return res.status(404).json({ message: "post not found." });
+        return res
+          .status(404)
+          .send({ success: false, error: "post not found." });
       }
       const comments = post.comments || [];
-      sendResponse(res, 200, comments);
+      res.status(200).send(comments);
     } catch (error) {
       next(error);
     }
@@ -484,9 +516,9 @@ async function run() {
       const { postId } = req.params;
       const { comment, userName, userEmail } = req.body;
       if (!comment || !userName || !userEmail) {
-        return res.status(400).json({
-          message:
-            "All fields are required: comment, userName, userEmail.",
+        return res.status(400).send({
+          success: false,
+          error: "All fields are required: comment, userName, userEmail.",
         });
       }
       const newComment = {
@@ -499,12 +531,13 @@ async function run() {
         { _id: new ObjectId(postId) },
         { $push: { comments: newComment } }
       );
-      if (result.modifiedCount === 0) {
-        return res
-          .status(404)
-          .json({ message: "post not found or comment not added." });
+      if (!result.acknowledged) {
+        return res.status(404).send({
+          success: false,
+          error: "Post not found or comment not added.",
+        });
       }
-      sendResponse(res, 200, result);
+      res.status(200).send(result);
     } catch (error) {
       next(error);
     }
@@ -515,25 +548,26 @@ async function run() {
       const { postId } = req.params;
       const { comment, userEmail } = req.body;
       if (!userEmail || !comment) {
-        return res.status(400).json({
-          message:
-            "Missing required fields: userEmail and at least one of comment.",
+        return res.status(400).send({
+          success: false,
+          error: "Missing required fields: userEmail and comment.",
         });
       }
       const post = await postCollection.findOne({
         _id: new ObjectId(postId),
       });
       if (!post) {
-        return res.status(404).json({ message: "post not found." });
+        return res
+          .status(404)
+          .send({ success: false, error: "post not found." });
       }
       const findComment = post.comments?.find(
         (rev) => rev.userEmail === userEmail
       );
       if (!findComment) {
-        return res.status(404).json({ message: "Comment not found." });
+        return res.status(404).send({ success: false,error: "Comment not found." });
       }
       const updateFields = {};
-      if (rating) updateFields["comments.$[comment].rating"] = rating;
       if (comment) updateFields["comments.$[comment].comment"] = comment;
       const result = await postCollection.updateOne(
         { _id: new ObjectId(postId) },
@@ -542,10 +576,13 @@ async function run() {
           arrayFilters: [{ "comment.userEmail": userEmail }],
         }
       );
-      if (result.modifiedCount === 0) {
-        return res.status(404).json({ message: "Failed to update comment." });
+      if (!result.acknowledged) {
+        return res.status(404).send({
+          success: false,
+          error: "Failed to update comment.",
+        });
       }
-      sendResponse(res, 200, result);
+      res.status(200).send(result);
     } catch (error) {
       next(error);
     }
@@ -557,35 +594,36 @@ async function run() {
       const { userEmail } = req.body;
 
       if (!userEmail) {
-        return res.status(400).json({ message: "Missing userEmail." });
+        return res.status(400).send({ success: false, error: "Missing userEmail." });
       }
 
       const post = await postCollection.findOne({
         _id: new ObjectId(postId),
       });
       if (!post) {
-        return res.status(404).json({ message: "post not found." });
+        return res.status(404).send({ success: false, error: "post not found." });
       }
       const commentIndex = post.comments?.findIndex(
         (rev) => rev.userEmail === userEmail
       );
       if (commentIndex === -1) {
-        return res.status(404).json({ message: "comment not found." });
+        return res.status(404).send({ success: false, error: "comment not found." });
       }
       const result = await postCollection.updateOne(
         { _id: new ObjectId(postId) },
         { $pull: { comments: { userEmail: userEmail } } }
       );
-      if (result.modifiedCount === 0) {
-        return res.status(404).json({ message: "Failed to delete comment." });
+      if (!result.acknowledged) {
+        return res.status(404).send({
+          success: false,
+          error: "Failed to delete comment.",
+        });
       }
-      sendResponse(res, 200, result);
+      res.status(200).send(result);
     } catch (error) {
       next(error);
     }
   });
-
-  app.use(errorHandler);
 }
 
 run().catch(console.dir);

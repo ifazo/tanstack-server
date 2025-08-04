@@ -220,7 +220,7 @@ async function run() {
     }
   });
 
-  app.post("/api/auth/signin", async (req, res) => {
+  app.post("/api/auth", async (req, res) => {
     try {
       const { email, password } = req.body;
       const user = await userCollection.findOne({ email });
@@ -249,7 +249,7 @@ async function run() {
     }
   });
 
-  app.post("/api/auth/signup", async (req, res) => {
+  app.post("/api/users", async (req, res) => {
     try {
       const { name, email, password } = req.body;
       const existingUser = await userCollection.findOne({ email });
@@ -268,13 +268,7 @@ async function run() {
           message: "User not created",
         });
       }
-      const payload = {
-        name: user.name,
-        email: user.email,
-      };
-      const JWTtoken = process.env.JWT_SECRET_TOKEN;
-      const token = jwt.sign(payload, JWTtoken);
-      sendResponse(res, 201, { token });
+      sendResponse(res, 201, createUser);
     } catch (error) {
       next(error);
     }

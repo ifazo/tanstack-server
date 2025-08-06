@@ -368,17 +368,6 @@ io.on("connection", (socket) => {
 });
 
 async function run() {
-  try {
-    await client.connect();
-    console.log("✅ Connected to MongoDB successfully");
-  } catch (error) {
-    console.error("❌ MongoDB connection failed:", error);
-    console.log("🔄 Retrying in 5 seconds...");
-    setTimeout(() => {
-      run().catch(console.error);
-    }, 5000);
-  }
-
   const db = client.db(process.env.MONGODB_DB);
   const userCollection = db.collection("users");
   const postCollection = db.collection("posts");
@@ -393,7 +382,7 @@ async function run() {
     res.status(200).json({ message: "Tanstack Server api is running!" });
   });
 
-  app.post("/api/token", async (req, res, next) => {
+  app.post("/api/token", async (req, res) => {
     try {
       const data = req.body;
       const user = await userCollection.findOne({ email: data.email });
@@ -415,47 +404,100 @@ async function run() {
     }
   });
 
-  app.post("/api/auth", async (req, res, next) => {
-    try {
-      const { name, email, password } = req.body;
-      const user = await userCollection.findOne({ email });
-      
-      if (!user && password === "social") {
+  app.post("/api/auth", async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        message: "Email and password are required",
+      });
+    }
+
+    const user = await userCollection.findOne({ email });
+    
+    if (password === "social") {
+      if (!user) {
         const addSocialUser = await userCollection.insertOne({
-          name: name,
+          name: name || "Social User",
           email: email,
-          password: password,
+          provider: "social",
           createdAt: new Date(),
         });
+        
         const payload = {
           _id: addSocialUser.insertedId,
-          name: name,
+          name: name || "Social User",
           email: email,
         };
+        
         const JWTtoken = process.env.JWT_SECRET_TOKEN;
         const token = jwt.sign(payload, JWTtoken);
-        return res.status(200).json({ token, user: payload });
-      }
-      const isPasswordCorrect = await bcrypt.compare(password, user?.password);
-      if (!isPasswordCorrect) {
-        return res.status(400).json({
-          message: "Password is incorrect",
+        
+        return res.status(200).json({ 
+          token, 
+          user: payload,
+          message: "Social user created successfully"
+        });
+      } else {
+        const payload = {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+        };
+        
+        const JWTtoken = process.env.JWT_SECRET_TOKEN;
+        const token = jwt.sign(payload, JWTtoken);
+        
+        return res.status(200).json({ 
+          token, 
+          user: payload,
+          message: "Social login successful"
         });
       }
-      const payload = {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-      };
-      const JWTtoken = process.env.JWT_SECRET_TOKEN;
-      const token = jwt.sign(payload, JWTtoken);
-      res.status(200).json({ token, user: payload });
-    } catch (error) {
-      next(error);
     }
-  });
+    
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found. Please sign up first.",
+      });
+    }
 
-  app.post("/api/users", async (req, res, next) => {
+    if (user.password === "social") {
+      return res.status(400).json({
+        message: "This account was created using social login. Please use Google or GitHub to sign in.",
+      });
+    }
+
+    const isPasswordCorrect = await bcrypt.compare(password, user.password);
+    if (!isPasswordCorrect) {
+      return res.status(401).json({
+        message: "Invalid password",
+      });
+    }
+
+    const payload = {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+    };
+    
+    const JWTtoken = process.env.JWT_SECRET_TOKEN;
+    const token = jwt.sign(payload, JWTtoken);
+    
+    res.status(200).json({ 
+      token, 
+      user: payload,
+      message: "Login successful"
+    });
+
+  } catch (error) {
+    console.error("Auth error:", error);
+    next(error);
+  }
+});
+
+  app.post("/api/users", async (req, res) => {
     try {
       const { name, email, password } = req.body;
       const existingUser = await userCollection.findOne({ email });
@@ -486,7 +528,7 @@ async function run() {
     }
   });
 
-  app.get("/api/users", async (_req, res, next) => {
+  app.get("/api/users", async (_req, res) => {
     try {
       const users = await userCollection.find().toArray();
       res.status(200).json(users);
@@ -495,7 +537,7 @@ async function run() {
     }
   });
 
-  app.get("/api/users/:userId", async (req, res, next) => {
+  app.get("/api/users/:userId", async (req, res) => {
     try {
       const { userId } = req.params;
       const user = await userCollection.findOne({ _id: new ObjectId(userId) });
@@ -510,7 +552,7 @@ async function run() {
     }
   });
 
-  app.patch("/api/users/:userId", ownerMiddleware, async (req, res, next) => {
+  app.patch("/api/users/:userId", ownerMiddleware, async (req, res) => {
     try {
       const { userId } = req.params;
       const user = req.body;
@@ -530,7 +572,7 @@ async function run() {
     }
   });
 
-  app.delete("/api/users/:userId", ownerMiddleware, async (req, res, next) => {
+  app.delete("/api/users/:userId", ownerMiddleware, async (req, res) => {
     try {
       const { userId } = req.params;
       const result = await userCollection.deleteOne({
@@ -547,7 +589,7 @@ async function run() {
     }
   });
 
-  app.post("/api/chats", async (req, res, next) => {
+  app.post("/api/chats", async (req, res) => {
     try {
       const chat = req.body;
       // chat.createdAt = new Date();
@@ -563,7 +605,7 @@ async function run() {
     }
   });
 
-  app.get("/api/chats/personal/:userId", async (req, res, next) => {
+  app.get("/api/chats/personal/:userId", async (req, res) => {
     try {
       const { userId } = req.params;
       const { receiverId } = req.query;
@@ -609,7 +651,7 @@ async function run() {
     }
   });
 
-  app.get("/api/chats/group/:groupId", async (req, res, next) => {
+  app.get("/api/chats/group/:groupId", async (req, res) => {
     try {
       const { groupId } = req.params;
       const group = await groupCollection.findOne({ groupId });
@@ -638,7 +680,7 @@ async function run() {
   app.patch(
     "/api/chats/:userId/conversations/:receiverId",
     ownerMiddleware,
-    async (req, res, next) => {
+    async (req, res) => {
       try {
         const { userId, receiverId } = req.params;
         const updates = req.body;
@@ -697,7 +739,7 @@ async function run() {
   app.delete(
     "/api/chats/:userId/conversations/:receiverId",
     ownerMiddleware,
-    async (req, res, next) => {
+    async (req, res) => {
       try {
         const { userId, receiverId } = req.params;
 
@@ -745,7 +787,7 @@ async function run() {
   );
 
   // Delete entire chat document (all conversations for a user)
-  app.delete("/api/chats/:userId", ownerMiddleware, async (req, res, next) => {
+  app.delete("/api/chats/:userId", ownerMiddleware, async (req, res) => {
     try {
       const { userId } = req.params;
 
@@ -786,7 +828,7 @@ async function run() {
   app.post(
     "/api/chats/:userId/conversations/:receiverId/messages",
     ownerMiddleware,
-    async (req, res, next) => {
+    async (req, res) => {
       try {
         const { userId, receiverId } = req.params;
         const { message } = req.body;
@@ -895,7 +937,7 @@ async function run() {
     }
   );
 
-  app.patch("/api/chats/:chatId", ownerMiddleware, async (req, res, next) => {
+  app.patch("/api/chats/:chatId", ownerMiddleware, async (req, res) => {
     try {
       const { chatId } = req.params;
       const data = req.body;
@@ -943,7 +985,7 @@ async function run() {
     }
   });
 
-  app.post("/api/groups", async (req, res, next) => {
+  app.post("/api/groups", async (req, res) => {
     try {
       const { name, createdBy } = req.body;
 
@@ -973,7 +1015,7 @@ async function run() {
     }
   });
 
-  app.get("/api/groups", async (req, res, next) => {
+  app.get("/api/groups", async (req, res) => {
     try {
       const groups = await groupCollection.find({}).toArray();
       res.status(200).json(groups);
@@ -982,7 +1024,7 @@ async function run() {
     }
   });
 
-  app.get("/api/groups/:id", async (req, res, next) => {
+  app.get("/api/groups/:id", async (req, res) => {
     try {
       const { id } = req.params;
       const { member, messages } = req.query;
@@ -1004,7 +1046,7 @@ async function run() {
     }
   });
 
-  app.get("/api/posts", async (req, res, next) => {
+  app.get("/api/posts", async (req, res) => {
     try {
       const { search, skip, limit, sort, sortBy } = req.query;
       let query = {};
@@ -1035,7 +1077,7 @@ async function run() {
     }
   });
 
-  app.get("/api/posts/:id", async (req, res, next) => {
+  app.get("/api/posts/:id", async (req, res) => {
     try {
       const { id } = req.params;
       const post = await postCollection.findOne({
@@ -1047,7 +1089,7 @@ async function run() {
     }
   });
 
-  app.post("/api/posts", authMiddleware, async (req, res, next) => {
+  app.post("/api/posts", authMiddleware, async (req, res) => {
     try {
       const post = req.body;
       post.createdAt = new Date();
@@ -1063,7 +1105,7 @@ async function run() {
     }
   });
 
-  app.patch("/api/posts/:id", authMiddleware, async (req, res, next) => {
+  app.patch("/api/posts/:id", authMiddleware, async (req, res) => {
     try {
       const { id } = req.params;
       const post = req.body;
@@ -1094,7 +1136,7 @@ async function run() {
     }
   });
 
-  app.delete("/api/posts/:id", authMiddleware, async (req, res, next) => {
+  app.delete("/api/posts/:id", authMiddleware, async (req, res) => {
     try {
       const { id } = req.params;
       const token = req.headers.authorization?.split(" ")[1];
@@ -1123,7 +1165,7 @@ async function run() {
     }
   });
 
-  app.get("/api/comments/:postId", async (req, res, next) => {
+  app.get("/api/comments/:postId", async (req, res) => {
     try {
       const { postId } = req.params;
       const post = await postCollection.findOne({
@@ -1139,7 +1181,7 @@ async function run() {
     }
   });
 
-  app.post("/api/comments/:postId", async (req, res, next) => {
+  app.post("/api/comments/:postId", async (req, res) => {
     try {
       const { postId } = req.params;
       const { comment, userId, userName, userEmail } = req.body;
@@ -1171,7 +1213,7 @@ async function run() {
     }
   });
 
-  app.patch("/api/comments/:postId", async (req, res, next) => {
+  app.patch("/api/comments/:postId", async (req, res) => {
     try {
       const { postId } = req.params;
       const { comment, userId } = req.body;
@@ -1210,7 +1252,7 @@ async function run() {
     }
   });
 
-  app.delete("/api/comments/:postId", async (req, res, next) => {
+  app.delete("/api/comments/:postId", async (req, res) => {
     try {
       const { postId } = req.params;
       const { userId } = req.body;
@@ -1247,10 +1289,7 @@ async function run() {
   app.use((_req, res, error) => {
     console.error("❌ Server Error:", error.message || error);
     res.status(error.status || 500).json({
-      message:
-        process.env.NODE_ENV === "production"
-          ? "Internal Server Error"
-          : error.message || "Internal Server Error",
+      message: error.message || "Internal Server Error",
     });
   });
 }

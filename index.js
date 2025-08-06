@@ -27,15 +27,41 @@ const authMiddleware = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(" ")[1];
     if (!token) {
-      return res
-        .status(401)
-        .send({ success: false, error: "Unauthorized access" });
+      return res.status(401).json({ message: "Unauthorized access" });
     }
     const secret = process.env.JWT_SECRET_TOKEN;
     jwt.verify(token, secret);
     next();
   } catch (error) {
-    return res.status(401).send({ success: false, error: error.message });
+    return res.status(401).json({ message: error.message });
+  }
+};
+
+const ownerMiddleware = (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) {
+      return res.status(401).json({ message: "Unauthorized: No token found" });
+    }
+    const secret = process.env.JWT_SECRET_TOKEN;
+    const decodedToken = jwt.verify(token, secret);
+
+    req.user = {
+      _id: decodedToken._id,
+      name: decodedToken.name,
+      email: decodedToken.email,
+    };
+
+    const userId = req.body?.userId || req.params?.userId || req.query?.userId;
+
+    if (userId && req.user._id !== userId) {
+      return res.status(403).json({
+        message: "Forbidden: You're not the owner",
+      });
+    }
+    next();
+  } catch (error) {
+    return res.status(401).json({ message: error.message });
   }
 };
 
@@ -78,53 +104,114 @@ io.on("connection", (socket) => {
       const onlineUsers = Array.from(connectedUsers.values());
 
       socket.emit("online_users", onlineUsers);
-      socket.broadcast.emit("user_joined", {
-        userName,
-        message: `${userName} joined the chat`,
-        timestamp: new Date(),
-      });
       io.emit("update_online_users", onlineUsers);
     } catch (error) {
       console.error("Error in join_chat:", error);
       socket.emit("error", { message: "Failed to join chat" });
     }
   });
-  //! Message to personal chat
-  socket.on("send_message", async ({ message, userName, userEmail }) => {
+
+  //! Message to personal chat (no global chat)
+  socket.on("send_message", async ({ message, receiverId }) => {
     try {
       const user = connectedUsers.get(socket.id);
-      if (!user || !message) return;
+      if (!user || !message || !receiverId) {
+        socket.emit("error", {
+          message: "User, message, and receiverId are required",
+        });
+        return;
+      }
 
       const now = new Date();
+      const newMsg = {
+        message: message,
+        timestamp: now,
+      };
 
-      const existingChat = await chatCollection.findOne({
+      //! Only handle sender's chat document (personal messages only)
+      const userChat = await chatCollection.findOne({
         userId: user.userId,
       });
 
-      const newMsg = { text: message, timestamp: now };
-
-      if (existingChat) {
-        await chatCollection.updateOne(
-          { _id: existingChat._id },
-          {
-            $push: { messages: newMsg },
-            $set: { lastUpdated: now },
-          }
+      if (userChat) {
+        //! Check if there's already a conversation with this receiver
+        const existingUserConversation = userChat.conversations?.find(
+          (conversation) => conversation.receiverId === receiverId
         );
+
+        if (existingUserConversation) {
+          //! Add message to existing conversation
+          await chatCollection.updateOne(
+            {
+              userId: user.userId,
+              "conversations.receiverId": receiverId,
+            },
+            {
+              $push: { "conversations.$.messages": newMsg },
+              $set: {
+                "conversations.$.lastUpdated": now,
+                lastUpdated: now,
+              },
+            }
+          );
+        } else {
+          //! Create new conversation for this receiver
+          await chatCollection.updateOne(
+            { userId: user.userId },
+            {
+              $push: {
+                conversations: {
+                  receiverId: receiverId,
+                  messages: [newMsg],
+                  lastUpdated: now,
+                },
+              },
+              $set: { lastUpdated: now },
+            }
+          );
+        }
       } else {
+        //! Create new chat document for user
         await chatCollection.insertOne({
           userId: user.userId,
-          userName,
-          userEmail,
-          messages: [newMsg],
+          userName: user.userName,
+          userEmail: user.userEmail,
+          conversations: [
+            {
+              receiverId: receiverId,
+              messages: [newMsg],
+              lastUpdated: now,
+            },
+          ],
+          createdAt: now,
           lastUpdated: now,
         });
       }
 
-      io.to(socket.id).emit("receive_message", {
+      console.log(
+        `Personal message saved from ${user.userName} to ${receiverId}`
+      );
+
+      //! Emit back to sender for confirmation
+      socket.emit("receive_message", {
         userId: user.userId,
+        receiverId: receiverId,
         message: newMsg,
+        success: true,
       });
+
+      //! Send message to receiver if they're online
+      const receiverSocketId = [...connectedUsers.entries()].find(
+        ([, userData]) => userData.userId === receiverId
+      )?.[0];
+
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("receive_private_message", {
+          senderId: user.userId,
+          senderName: user.userName,
+          message: newMsg,
+        });
+      }
     } catch (error) {
       console.error("Error in send_message:", error);
       socket.emit("error", { message: "Failed to send message" });
@@ -146,7 +233,7 @@ io.on("connection", (socket) => {
 
       if (!group) {
         console.log(`Group ${groupId} not found`);
-        return
+        return;
       }
       //! Add user to group members if not already present
       const isMember = group.members.some(
@@ -219,7 +306,7 @@ io.on("connection", (socket) => {
     console.log(`[GROUP LEFT] ${userName} -> ${groupId}`);
   });
 
-  // Group messages
+  //! Group messages
   socket.on("send_group_message", async ({ groupId, message }) => {
     const user = connectedUsers.get(socket.id);
     if (!user || !message) return;
@@ -235,10 +322,7 @@ io.on("connection", (socket) => {
         timestamp: new Date(),
       };
 
-      // Save to chatCollection for API consistency
-      // await chatCollection.insertOne(chatMessage);
-
-      // Also save to group collection
+      //! Also save to group collection
       await groupCollection.updateOne(
         { groupId },
         {
@@ -306,7 +390,7 @@ async function run() {
   });
 
   app.get("/api", (_req, res) => {
-    res.status(200).send({ message: "Tanstack Server api is running!" });
+    res.status(200).json({ message: "Tanstack Server api is running!" });
   });
 
   app.post("/api/token", async (req, res, next) => {
@@ -314,9 +398,8 @@ async function run() {
       const data = req.body;
       const user = await userCollection.findOne({ email: data.email });
       if (!user) {
-        return res.status(400).send({
-          success: false,
-          error: "User does not exist",
+        return res.status(400).json({
+          message: "User does not exist",
         });
       }
       const payload = {
@@ -326,7 +409,7 @@ async function run() {
       };
       const JWToken = process.env.JWT_SECRET_TOKEN;
       const token = jwt.sign(payload, JWToken);
-      res.status(200).send({ token });
+      res.status(200).json({ token });
     } catch (error) {
       next(error);
     }
@@ -334,19 +417,29 @@ async function run() {
 
   app.post("/api/auth", async (req, res, next) => {
     try {
-      const { email, password } = req.body;
+      const { name, email, password } = req.body;
       const user = await userCollection.findOne({ email });
-      if (!user) {
-        return res.status(400).send({
-          success: false,
-          error: "User does not exist",
+      
+      if (!user && password === "social") {
+        const addSocialUser = await userCollection.insertOne({
+          name: name,
+          email: email,
+          password: password,
+          createdAt: new Date(),
         });
+        const payload = {
+          _id: addSocialUser.insertedId,
+          name: name,
+          email: email,
+        };
+        const JWTtoken = process.env.JWT_SECRET_TOKEN;
+        const token = jwt.sign(payload, JWTtoken);
+        return res.status(200).json({ token, user: payload });
       }
       const isPasswordCorrect = await bcrypt.compare(password, user?.password);
       if (!isPasswordCorrect) {
-        return res.status(400).send({
-          success: false,
-          error: "Password is incorrect",
+        return res.status(400).json({
+          message: "Password is incorrect",
         });
       }
       const payload = {
@@ -356,7 +449,7 @@ async function run() {
       };
       const JWTtoken = process.env.JWT_SECRET_TOKEN;
       const token = jwt.sign(payload, JWTtoken);
-      res.status(200).send({ token });
+      res.status(200).json({ token, user: payload });
     } catch (error) {
       next(error);
     }
@@ -367,9 +460,8 @@ async function run() {
       const { name, email, password } = req.body;
       const existingUser = await userCollection.findOne({ email });
       if (existingUser) {
-        return res.status(400).send({
-          success: false,
-          error: "User already exists",
+        return res.status(409).json({
+          message: "User already exists",
         });
       }
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -377,12 +469,18 @@ async function run() {
       user.createdAt = new Date();
       const createUser = await userCollection.insertOne(user);
       if (!createUser.acknowledged) {
-        return res.status(400).send({
-          success: false,
-          error: "User not created",
+        return res.status(400).json({
+          message: "User not created",
         });
       }
-      res.status(201).send(createUser);
+      const payload = {
+        _id: createUser.insertedId,
+        name: user.name,
+        email: user.email,
+      };
+      const JWTtoken = process.env.JWT_SECRET_TOKEN;
+      const token = jwt.sign(payload, JWTtoken);
+      res.status(201).json({ token, user: payload });
     } catch (error) {
       next(error);
     }
@@ -391,62 +489,59 @@ async function run() {
   app.get("/api/users", async (_req, res, next) => {
     try {
       const users = await userCollection.find().toArray();
-      res.status(200).send(users);
+      res.status(200).json(users);
     } catch (error) {
       next(error);
     }
   });
 
-  app.get("/api/users/:id", async (req, res, next) => {
+  app.get("/api/users/:userId", async (req, res, next) => {
     try {
-      const { id } = req.params;
-      const user = await userCollection.findOne({ _id: new ObjectId(id) });
+      const { userId } = req.params;
+      const user = await userCollection.findOne({ _id: new ObjectId(userId) });
       if (!user) {
-        return res.status(404).send({
-          success: false,
-          error: "User not found",
+        return res.status(404).json({
+          message: "User not found",
         });
       }
-      res.status(200).send(user);
+      res.status(200).json(user);
     } catch (error) {
       next(error);
     }
   });
 
-  app.patch("/api/users/:id", async (req, res, next) => {
+  app.patch("/api/users/:userId", ownerMiddleware, async (req, res, next) => {
     try {
-      const { id } = req.params;
+      const { userId } = req.params;
       const user = req.body;
       user.updatedAt = new Date();
       const result = await userCollection.updateOne(
-        { _id: new ObjectId(id) },
+        { _id: new ObjectId(userId) },
         { $set: user }
       );
       if (result.modifiedCount === 0) {
-        return res.status(400).send({
-          success: false,
-          error: "User not found or updated",
+        return res.status(400).json({
+          message: "User not found or updated",
         });
       }
-      res.status(200).send(result);
+      res.status(200).json(result);
     } catch (error) {
       next(error);
     }
   });
 
-  app.delete("/api/users/:id", async (req, res, next) => {
+  app.delete("/api/users/:userId", ownerMiddleware, async (req, res, next) => {
     try {
-      const { id } = req.params;
+      const { userId } = req.params;
       const result = await userCollection.deleteOne({
-        _id: new ObjectId(id),
+        _id: new ObjectId(userId),
       });
       if (result.deletedCount === 0) {
-        return res.status(400).send({
-          success: false,
-          error: "User not found or deleted",
+        return res.status(400).json({
+          message: "User not found or deleted",
         });
       }
-      res.status(200).send(result);
+      res.status(200).json(result);
     } catch (error) {
       next(error);
     }
@@ -455,15 +550,14 @@ async function run() {
   app.post("/api/chats", async (req, res, next) => {
     try {
       const chat = req.body;
-      chat.createdAt = new Date();
+      // chat.createdAt = new Date();
       const result = await chatCollection.insertOne(chat);
       if (!result.acknowledged) {
-        return res.status(400).send({
-          success: false,
-          error: "Chat not created",
+        return res.status(400).json({
+          message: "Chat not created",
         });
       }
-      res.status(201).send(result);
+      res.status(201).json(result);
     } catch (error) {
       next(error);
     }
@@ -472,14 +566,44 @@ async function run() {
   app.get("/api/chats/personal/:userId", async (req, res, next) => {
     try {
       const { userId } = req.params;
-      const { limit = 50, skip = 0 } = req.query;
-      const chats = await chatCollection
-        .find({ userId })
-        .sort({ createdAt: -1 })
-        .skip(parseInt(skip))
-        .limit(parseInt(limit))
-        .toArray();
-      res.status(200).send(chats.reverse());
+      const { receiverId } = req.query;
+      if (!userId) {
+        return res.status(400).json({ message: "userId is required" });
+      }
+      const userChat = await chatCollection.findOne({ userId });
+      if (!userChat) {
+        return res.status(200).json({ conversation: [] });
+      }
+      if (receiverId) {
+        const conversation = userChat.conversations?.find(
+          (conv) => conv.receiverId === receiverId
+        );
+        if (!conversation) {
+          return res.status(200).json({ messages: [] });
+        }
+
+        const messages = conversation.messages || [];
+
+        return res.status(200).json({
+          receiverId: conversation.receiverId,
+          messages: messages,
+          totalMessages: messages.length,
+        });
+      }
+
+      // Return all conversations overview
+      const conversationsOverview =
+        userChat.conversations?.map((conv) => ({
+          receiverId: conv.receiverId,
+          lastMessage: conv.messages[conv.messages.length - 1],
+          messageCount: conv.messages.length,
+          lastUpdated: conv.lastUpdated,
+        })) || [];
+
+      res.status(200).json({
+        conversations: conversationsOverview,
+        totalConversations: conversationsOverview.length,
+      });
     } catch (error) {
       next(error);
     }
@@ -488,53 +612,332 @@ async function run() {
   app.get("/api/chats/group/:groupId", async (req, res, next) => {
     try {
       const { groupId } = req.params;
-      const { limit = 50, skip = 0 } = req.query;
-      const chats = await chatCollection
-        .find({ groupId })
-        .sort({ createdAt: -1 })
-        .skip(parseInt(skip))
-        .limit(parseInt(limit))
-        .toArray();
-      res.status(200).send(chats.reverse());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.patch("/api/chats/:id", async (req, res, next) => {
-    try {
-      const { id } = req.params;
-      const chat = req.body;
-      chat.updatedAt = new Date();
-      const result = await chatCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: chat }
-      );
-      if (result.modifiedCount === 0) {
-        return res.status(400).send({
-          success: false,
-          error: "Chat not found or updated",
+      const group = await groupCollection.findOne({ groupId });
+      if (!group) {
+        return res.status(404).json({
+          message: "Group not found",
         });
       }
-      res.status(200).send(result);
-    } catch (error) {
-      next(error);
-    }
-  });
+      const messages = group.messages || [];
+      messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-  app.delete("/api/chats/:id", async (req, res, next) => {
-    try {
-      const { id } = req.params;
-      const result = await chatCollection.deleteOne({
-        _id: new ObjectId(id),
+      res.status(200).json({
+        groupId: group.groupId,
+        groupName: group.groupName || null,
+        totalMessages: messages.length,
+        messages,
       });
-      if (result.deletedCount === 0) {
-        return res.status(400).send({
-          success: false,
-          error: "Chat not found or deleted",
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ...existing code...
+
+  // Update a specific conversation in user's chat
+  app.patch(
+    "/api/chats/:userId/conversations/:receiverId",
+    ownerMiddleware,
+    async (req, res, next) => {
+      try {
+        const { userId, receiverId } = req.params;
+        const updates = req.body;
+        // const user = req.headers.user;
+        // Ensure user can only update their own chats
+        if (req.user._id !== userId) {
+          return res.status(403).json({
+            message: "Unauthorized: Can only update your own chats",
+          });
+        }
+
+        const updateFields = {};
+        if (updates.lastUpdated)
+          updateFields["conversations.$.lastUpdated"] = new Date();
+
+        const result = await chatCollection.updateOne(
+          {
+            userId: userId,
+            "conversations.receiverId": receiverId,
+          },
+          {
+            $set: {
+              ...updateFields,
+              lastUpdated: new Date(),
+            },
+          }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res.status(404).json({
+            message: "Chat conversation not found or not updated",
+          });
+        }
+
+        // Notify via Socket.IO if user is online
+        const userSocketId = [...connectedUsers.entries()].find(
+          ([, userData]) => userData.userId === userId
+        )?.[0];
+
+        if (userSocketId) {
+          io.to(userSocketId).emit("conversation_updated", {
+            userId,
+            receiverId,
+            timestamp: new Date(),
+          });
+        }
+
+        res.status(200).json(result);
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  // Delete a specific conversation from user's chat
+  app.delete(
+    "/api/chats/:userId/conversations/:receiverId",
+    ownerMiddleware,
+    async (req, res, next) => {
+      try {
+        const { userId, receiverId } = req.params;
+
+        // Ensure user can only delete their own chats
+        if (req.user._id !== userId) {
+          return res.status(403).json({
+            message: "Unauthorized: Can only delete your own chats",
+          });
+        }
+
+        const result = await chatCollection.updateOne(
+          { userId: userId },
+          {
+            $pull: {
+              conversations: { receiverId: receiverId },
+            },
+            $set: { lastUpdated: new Date() },
+          }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res.status(404).json({
+            message: "Chat conversation not found or not deleted",
+          });
+        }
+
+        // Notify via Socket.IO if user is online
+        const userSocketId = [...connectedUsers.entries()].find(
+          ([, userData]) => userData.userId === userId
+        )?.[0];
+
+        if (userSocketId) {
+          io.to(userSocketId).emit("conversation_deleted", {
+            userId,
+            receiverId,
+            timestamp: new Date(),
+          });
+        }
+
+        res.status(200).json(result);
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  // Delete entire chat document (all conversations for a user)
+  app.delete("/api/chats/:userId", ownerMiddleware, async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+
+      // Ensure user can only delete their own chats
+      if (req.user._id !== userId) {
+        return res.status(403).json({
+          message: "Unauthorized: Can only delete your own chats",
         });
       }
-      res.status(200).send(result);
+
+      const result = await chatCollection.deleteOne({ userId: userId });
+
+      if (result.deletedCount === 0) {
+        return res.status(404).json({
+          message: "Chat not found or not deleted",
+        });
+      }
+
+      // Notify via Socket.IO if user is online
+      const userSocketId = [...connectedUsers.entries()].find(
+        ([, userData]) => userData.userId === userId
+      )?.[0];
+
+      if (userSocketId) {
+        io.to(userSocketId).emit("all_chats_deleted", {
+          userId,
+          timestamp: new Date(),
+        });
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Add/Update message in a conversation (alternative to Socket.IO)
+  app.post(
+    "/api/chats/:userId/conversations/:receiverId/messages",
+    ownerMiddleware,
+    async (req, res, next) => {
+      try {
+        const { userId, receiverId } = req.params;
+        const { message } = req.body;
+
+        if (!message) {
+          return res.status(400).json({
+            message: "Message is required",
+          });
+        }
+
+        // Ensure user can only add to their own chats
+        if (req.user._id !== userId) {
+          return res.status(403).json({
+            message: "Unauthorized: Can only add to your own chats",
+          });
+        }
+
+        const now = new Date();
+        const newMsg = {
+          message: message,
+          timestamp: now,
+        };
+
+        const userChat = await chatCollection.findOne({ userId });
+
+        if (userChat) {
+          const existingConversation = userChat.conversations?.find(
+            (conv) => conv.receiverId === receiverId
+          );
+
+          if (existingConversation) {
+            await chatCollection.updateOne(
+              {
+                userId: userId,
+                "conversations.receiverId": receiverId,
+              },
+              {
+                $push: { "conversations.$.messages": newMsg },
+                $set: {
+                  "conversations.$.lastUpdated": now,
+                  lastUpdated: now,
+                },
+              }
+            );
+          } else {
+            await chatCollection.updateOne(
+              { userId: userId },
+              {
+                $push: {
+                  conversations: {
+                    receiverId: receiverId,
+                    messages: [newMsg],
+                    lastUpdated: now,
+                  },
+                },
+                $set: { lastUpdated: now },
+              }
+            );
+          }
+        } else {
+          await chatCollection.insertOne({
+            userId: userId,
+            userName: req.user.name,
+            userEmail: req.user.email,
+            conversations: [
+              {
+                receiverId: receiverId,
+                messages: [newMsg],
+                lastUpdated: now,
+              },
+            ],
+            createdAt: now,
+            lastUpdated: now,
+          });
+        }
+
+        // Notify both sender and receiver via Socket.IO
+        const senderSocketId = [...connectedUsers.entries()].find(
+          ([, userData]) => userData.userId === userId
+        )?.[0];
+        const receiverSocketId = [...connectedUsers.entries()].find(
+          ([, userData]) => userData.userId === receiverId
+        )?.[0];
+
+        if (senderSocketId) {
+          io.to(senderSocketId).emit("receive_message", {
+            userId,
+            receiverId,
+            message: newMsg,
+            success: true,
+          });
+        }
+
+        if (receiverSocketId) {
+          io.to(receiverSocketId).emit("receive_private_message", {
+            senderId: userId,
+            senderName: req.user.name,
+            message: newMsg,
+          });
+        }
+
+        res.status(201).json(newMsg);
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.patch("/api/chats/:chatId", ownerMiddleware, async (req, res, next) => {
+    try {
+      const { chatId } = req.params;
+      const data = req.body;
+
+      const chat = await chatCollection.findOne({ _id: new ObjectId(chatId) });
+      if (!chat) {
+        return res.status(404).json({
+          message: "Chat not found",
+        });
+      }
+
+      if (chat.userId !== req.user._id) {
+        return res.status(403).json({
+          message: "Unauthorized: Can only update your own chats",
+        });
+      }
+
+      data.lastUpdated = new Date();
+      const result = await chatCollection.updateOne(
+        { _id: new ObjectId(chatId) },
+        { $set: data }
+      );
+
+      if (result.modifiedCount === 0) {
+        return res.status(400).json({
+          message: "Chat not updated",
+        });
+      }
+
+      // Notify via Socket.IO
+      const userSocketId = [...connectedUsers.entries()].find(
+        ([, userData]) => userData.userId === chat.userId
+      )?.[0];
+
+      if (userSocketId) {
+        io.to(userSocketId).emit("chat_updated", {
+          chatId,
+          updates,
+          timestamp: new Date(),
+        });
+      }
+      res.status(200).json(result);
     } catch (error) {
       next(error);
     }
@@ -545,9 +948,8 @@ async function run() {
       const { name, createdBy } = req.body;
 
       if (!name || !createdBy) {
-        return res.status(400).send({
-          success: false,
-          error: "name and createdBy are required",
+        return res.status(400).json({
+          message: "name and createdBy are required",
         });
       }
 
@@ -561,12 +963,11 @@ async function run() {
 
       const result = await groupCollection.insertOne(group);
       if (!result.acknowledged) {
-        return res.status(400).send({
-          success: false,
-          error: "Group not created",
+        return res.status(400).json({
+          message: "Group not created",
         });
       }
-      res.status(201).send(group);
+      res.status(201).json(result);
     } catch (error) {
       next(error);
     }
@@ -575,7 +976,7 @@ async function run() {
   app.get("/api/groups", async (req, res, next) => {
     try {
       const groups = await groupCollection.find({}).toArray();
-      res.status(200).send(groups);
+      res.status(200).json(groups);
     } catch (error) {
       next(error);
     }
@@ -587,18 +988,17 @@ async function run() {
       const { member, messages } = req.query;
       const group = await groupCollection.findOne({ _id: new ObjectId(id) });
       if (!group) {
-        return res.status(404).send({
-          success: false,
-          error: "Group not found",
+        return res.status(404).json({
+          message: "Group not found",
         });
       }
       if (member) {
-        return res.status(200).send(group.members || []);
+        return res.status(200).json(group.members || []);
       }
       if (messages) {
-        return res.status(200).send(group.messages || []);
+        return res.status(200).json(group.messages || []);
       }
-      res.status(200).send(group);
+      res.status(200).json(group);
     } catch (error) {
       next(error);
     }
@@ -629,7 +1029,7 @@ async function run() {
 
       const posts = await cursor.toArray();
 
-      res.status(200).send({ totalPosts, posts });
+      res.status(200).json({ totalPosts, posts });
     } catch (error) {
       next(error);
     }
@@ -641,7 +1041,7 @@ async function run() {
       const post = await postCollection.findOne({
         _id: new ObjectId(id),
       });
-      res.status(200).send(post);
+      res.status(200).json(post);
     } catch (error) {
       next(error);
     }
@@ -653,12 +1053,11 @@ async function run() {
       post.createdAt = new Date();
       const result = await postCollection.insertOne(post);
       if (!result.acknowledged) {
-        return res.status(400).send({
-          success: false,
-          error: "Post not created",
+        return res.status(400).json({
+          message: "Post not created",
         });
       }
-      res.status(201).send(result);
+      res.status(201).json(result);
     } catch (error) {
       next(error);
     }
@@ -676,9 +1075,8 @@ async function run() {
         _id: new ObjectId(id),
       });
       if (findPost.userId !== _id) {
-        return res.status(403).send({
-          success: false,
-          error: "Unauthorized access",
+        return res.status(403).json({
+          message: "Unauthorized access",
         });
       }
       const result = await postCollection.updateOne(
@@ -686,12 +1084,11 @@ async function run() {
         { $set: post }
       );
       if (result.modifiedCount === 0) {
-        return res.status(400).send({
-          success: false,
-          error: "Post not found or updated",
+        return res.status(400).json({
+          message: "Post not found or updated",
         });
       }
-      res.status(200).send(result);
+      res.status(200).json(result);
     } catch (error) {
       next(error);
     }
@@ -708,21 +1105,19 @@ async function run() {
         _id: new ObjectId(id),
       });
       if (findPost.userId !== _id) {
-        return res.status(403).send({
-          success: false,
-          error: "Unauthorized access",
+        return res.status(403).json({
+          message: "Unauthorized access",
         });
       }
       const result = await postCollection.deleteOne({
         _id: new ObjectId(id),
       });
       if (result.deletedCount === 0) {
-        return res.status(400).send({
-          success: false,
-          error: "Post not found or deleted",
+        return res.status(400).json({
+          message: "Post not found or deleted",
         });
       }
-      res.status(200).send(result);
+      res.status(200).json(result);
     } catch (error) {
       next(error);
     }
@@ -735,12 +1130,10 @@ async function run() {
         _id: new ObjectId(postId),
       });
       if (!post) {
-        return res
-          .status(404)
-          .send({ success: false, error: "post not found." });
+        return res.status(404).json({ message: "post not found." });
       }
       const comments = post.comments || [];
-      res.status(200).send(comments);
+      res.status(200).json(comments);
     } catch (error) {
       next(error);
     }
@@ -751,9 +1144,8 @@ async function run() {
       const { postId } = req.params;
       const { comment, userId, userName, userEmail } = req.body;
       if (!comment || !userId || !userName || !userEmail) {
-        return res.status(400).send({
-          success: false,
-          error:
+        return res.status(400).json({
+          message:
             "All fields are required: comment, userId, userName, userEmail.",
         });
       }
@@ -769,12 +1161,11 @@ async function run() {
         { $push: { comments: newComment } }
       );
       if (!result.acknowledged) {
-        return res.status(404).send({
-          success: false,
-          error: "Post not found or comment not added.",
+        return res.status(404).json({
+          message: "Post not found or comment not added.",
         });
       }
-      res.status(200).send(result);
+      res.status(200).json(result);
     } catch (error) {
       next(error);
     }
@@ -785,24 +1176,19 @@ async function run() {
       const { postId } = req.params;
       const { comment, userId } = req.body;
       if (!userId || !comment) {
-        return res.status(400).send({
-          success: false,
-          error: "Missing required fields: userId and comment.",
+        return res.status(400).json({
+          message: "Missing required fields: userId and comment.",
         });
       }
       const post = await postCollection.findOne({
         _id: new ObjectId(postId),
       });
       if (!post) {
-        return res
-          .status(404)
-          .send({ success: false, error: "post not found." });
+        return res.status(404).json({ message: "post not found." });
       }
       const findComment = post.comments?.find((rev) => rev.userId === userId);
       if (!findComment) {
-        return res
-          .status(404)
-          .send({ success: false, error: "Comment not found." });
+        return res.status(404).json({ message: "Comment not found." });
       }
       const updateFields = {};
       if (comment) updateFields["comments.$[comment].comment"] = comment;
@@ -814,12 +1200,11 @@ async function run() {
         }
       );
       if (result.modifiedCount === 0) {
-        return res.status(404).send({
-          success: false,
-          error: "Failed to update comment.",
+        return res.status(404).json({
+          message: "Failed to update comment.",
         });
       }
-      res.status(200).send(result);
+      res.status(200).json(result);
     } catch (error) {
       next(error);
     }
@@ -830,35 +1215,30 @@ async function run() {
       const { postId } = req.params;
       const { userId } = req.body;
       if (!userId) {
-        return res.status(400).send({ success: false, error: "Missing user." });
+        return res.status(400).json({ message: "Missing user." });
       }
       const post = await postCollection.findOne({
         _id: new ObjectId(postId),
       });
       if (!post) {
-        return res
-          .status(404)
-          .send({ success: false, error: "post not found." });
+        return res.status(404).json({ message: "post not found." });
       }
       const commentIndex = post.comments?.findIndex(
         (rev) => rev.userEmail === userEmail
       );
       if (commentIndex === -1) {
-        return res
-          .status(404)
-          .send({ success: false, error: "comment not found." });
+        return res.status(404).json({ message: "comment not found." });
       }
       const result = await postCollection.updateOne(
         { _id: new ObjectId(postId) },
         { $pull: { comments: { userEmail: userEmail } } }
       );
       if (result.deletedCount === 0) {
-        return res.status(404).send({
-          success: false,
-          error: "Failed to delete comment.",
+        return res.status(404).json({
+          message: "Failed to delete comment.",
         });
       }
-      res.status(200).send(result);
+      res.status(200).json(result);
     } catch (error) {
       next(error);
     }
@@ -866,9 +1246,8 @@ async function run() {
 
   app.use((_req, res, error) => {
     console.error("❌ Server Error:", error.message || error);
-    res.status(error.status || 500).send({
-      success: false,
-      error:
+    res.status(error.status || 500).json({
+      message:
         process.env.NODE_ENV === "production"
           ? "Internal Server Error"
           : error.message || "Internal Server Error",

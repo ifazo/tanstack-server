@@ -120,15 +120,15 @@ async function run() {
   chatCollection = db.collection("chats");
   groupCollection = db.collection("groups");
 
-  app.get("/", (_req, res) => {
+  app.get("/", (_req, res, next) => {
     res.status(200).send("Welcome to Tanstack Server!");
   });
 
-  app.get("/api", (_req, res) => {
+  app.get("/api", (_req, res, next) => {
     res.status(200).json({ message: "Tanstack Server api is running!" });
   });
 
-  app.post("/api/token", async (req, res) => {
+  app.post("/api/token", async (req, res, next) => {
     try {
       const data = req.body;
       const user = await userCollection.findOne({ email: data.email });
@@ -138,7 +138,7 @@ async function run() {
         });
       }
       const payload = {
-        id: user._id,
+        _id: user._id.toString(),
         name: user.name,
         email: user.email,
       };
@@ -150,18 +150,15 @@ async function run() {
     }
   });
 
-  app.post("/api/auth", async (req, res) => {
+  app.post("/api/auth", async (req, res, next) => {
     try {
       const { name, email, password } = req.body;
-
       if (!email || !password) {
         return res.status(400).json({
           message: "Email and password are required",
         });
       }
-
       const user = await userCollection.findOne({ email });
-
       if (password === "social") {
         if (!user) {
           const addSocialUser = await userCollection.insertOne({
@@ -172,7 +169,7 @@ async function run() {
           });
 
           const payload = {
-            _id: addSocialUser.insertedId,
+            _id: addSocialUser.insertedId.toString(),
             name: name || "Social User",
             email: email,
           };
@@ -183,11 +180,11 @@ async function run() {
           return res.status(200).json({
             token,
             user: payload,
-            message: "Social user created successfully",
+            message: "Social user created & login",
           });
         } else {
           const payload = {
-            _id: user._id,
+            _id: user._id.toString(),
             name: user.name,
             email: user.email,
           };
@@ -224,7 +221,7 @@ async function run() {
       }
 
       const payload = {
-        _id: user._id,
+        _id: user._id.toString(),
         name: user.name,
         email: user.email,
       };
@@ -235,7 +232,7 @@ async function run() {
       res.status(200).json({
         token,
         user: payload,
-        message: "Login successful",
+        message: "Email Login successful",
       });
     } catch (error) {
       console.error("Auth error:", error);
@@ -243,7 +240,7 @@ async function run() {
     }
   });
 
-  app.post("/api/users", async (req, res) => {
+  app.post("/api/users", async (req, res, next) => {
     try {
       const { name, email, password } = req.body;
       const existingUser = await userCollection.findOne({ email });
@@ -262,7 +259,7 @@ async function run() {
         });
       }
       const payload = {
-        _id: createUser.insertedId,
+        _id: createUser.insertedId.toString(),
         name: user.name,
         email: user.email,
       };
@@ -274,7 +271,7 @@ async function run() {
     }
   });
 
-  app.get("/api/users", async (_req, res) => {
+  app.get("/api/users", async (_req, res, next) => {
     try {
       const users = await userCollection.find().toArray();
       res.status(200).json(users);
@@ -283,7 +280,7 @@ async function run() {
     }
   });
 
-  app.get("/api/users/:userId", async (req, res) => {
+  app.get("/api/users/:userId", async (req, res, next) => {
     try {
       const { userId } = req.params;
       const user = await userCollection.findOne({ _id: new ObjectId(userId) });
@@ -298,7 +295,7 @@ async function run() {
     }
   });
 
-  app.patch("/api/users/:userId", ownerMiddleware, async (req, res) => {
+  app.patch("/api/users/:userId", ownerMiddleware, async (req, res, next) => {
     try {
       const { userId } = req.params;
       const user = req.body;
@@ -318,7 +315,7 @@ async function run() {
     }
   });
 
-  app.delete("/api/users/:userId", ownerMiddleware, async (req, res) => {
+  app.delete("/api/users/:userId", ownerMiddleware, async (req, res, next) => {
     try {
       const { userId } = req.params;
       const result = await userCollection.deleteOne({
@@ -335,23 +332,7 @@ async function run() {
     }
   });
 
-  // app.post("/api/chats", async (req, res) => {
-  //   try {
-  //     const chat = req.body;
-  //     // chat.createdAt = new Date();
-  //     const result = await chatCollection.insertOne(chat);
-  //     if (!result.acknowledged) {
-  //       return res.status(400).json({
-  //         message: "Chat not created",
-  //       });
-  //     }
-  //     res.status(201).json(result);
-  //   } catch (error) {
-  //     next(error);
-  //   }
-  // });
-  //! Get all personal chats overview list for a user
-  app.get("/api/chats/personal/:userId", async (req, res) => {
+  app.get("/api/chats/personal/:userId", async (req, res, next) => {
     try {
       const { userId } = req.params;
       const { receiverId } = req.query;
@@ -395,8 +376,8 @@ async function run() {
       next(error);
     }
   });
-  //! Get a specific group chat by groupId
-  app.get("/api/chats/group/:groupId", async (req, res) => {
+
+  app.get("/api/chats/group/:groupId", async (req, res, next) => {
     try {
       const { groupId } = req.params;
       const group = await groupCollection.findOne({ groupId });
@@ -418,103 +399,28 @@ async function run() {
       next(error);
     }
   });
-  //! Update a specific conversation in user's chat
-  app.patch(
-    "/api/chats/:userId/conversations/:receiverId",
-    ownerMiddleware,
-    async (req, res) => {
-      try {
-        const { userId, receiverId } = req.params;
-        const updates = req.body;
-        // Ensure user can only update their own chats
-        if (req.user._id !== userId) {
-          return res.status(403).json({
-            message: "Unauthorized: Can only update your own chats",
-          });
-        }
 
-        const updateFields = {};
-        if (updates.lastUpdated)
-          updateFields["conversations.$.lastUpdated"] = new Date();
-
-        const result = await chatCollection.updateOne(
-          {
-            userId: userId,
-            "conversations.receiverId": receiverId,
-          },
-          {
-            $set: {
-              ...updateFields,
-              lastUpdated: new Date(),
-            },
-          }
-        );
-
-        if (result.modifiedCount === 0) {
-          return res.status(404).json({
-            message: "Chat conversation not found or not updated",
-          });
-        }
-
-        res.status(200).json(result);
-      } catch (error) {
-        next(error);
-      }
-    }
-  );
-  //! Delete a specific conversation from user's chat
-  app.delete(
-    "/api/chats/:userId/conversations/:receiverId",
-    ownerMiddleware,
-    async (req, res) => {
-      try {
-        const { userId, receiverId } = req.params;
-        // Ensure user can only delete their own chats
-        if (req.user._id !== userId) {
-          return res.status(403).json({
-            message: "Unauthorized: Can only delete your own chats",
-          });
-        }
-
-        const result = await chatCollection.updateOne(
-          { userId: userId },
-          {
-            $pull: {
-              conversations: { receiverId: receiverId },
-            },
-            $set: { lastUpdated: new Date() },
-          }
-        );
-
-        if (result.modifiedCount === 0) {
-          return res.status(404).json({
-            message: "Chat conversation not found or not deleted",
-          });
-        }
-
-        res.status(200).json(result);
-      } catch (error) {
-        next(error);
-      }
-    }
-  );
-
-  // Add/Update message in a conversation (alternative to Socket.IO)
   app.post(
-    "/api/chats/:userId/conversations/:receiverId/messages",
+    "/api/chats/personal/:userId/conversations",
     ownerMiddleware,
-    async (req, res) => {
+    async (req, res, next) => {
       try {
-        const { userId, receiverId } = req.params;
-        const { message } = req.body;
+        const { userId } = req.params;
 
+        const { receiverId } = req.query;
+        if (!receiverId) {
+          return res.status(400).json({
+            message: "receiverId is required",
+          });
+        }
+
+        const { message } = req.body;
         if (!message) {
           return res.status(400).json({
             message: "Message is required",
           });
         }
 
-        // Ensure user can only add to their own chats
         if (req.user._id !== userId) {
           return res.status(403).json({
             message: "Unauthorized: Can only add to your own chats",
@@ -587,7 +493,87 @@ async function run() {
     }
   );
 
-  app.post("/api/groups", async (req, res) => {
+  app.patch(
+    "/api/chats/:userId/conversations/:receiverId",
+    ownerMiddleware,
+    async (req, res, next) => {
+      try {
+        const { userId, receiverId } = req.params;
+        const updates = req.body;
+
+        if (req.user._id !== userId) {
+          return res.status(403).json({
+            message: "Unauthorized: Can only update your own chats",
+          });
+        }
+
+        const updateFields = {};
+        if (updates.lastUpdated)
+          updateFields["conversations.$.lastUpdated"] = new Date();
+
+        const result = await chatCollection.updateOne(
+          {
+            userId: userId,
+            "conversations.receiverId": receiverId,
+          },
+          {
+            $set: {
+              ...updateFields,
+              lastUpdated: new Date(),
+            },
+          }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res.status(404).json({
+            message: "Chat conversation not found or not updated",
+          });
+        }
+
+        res.status(200).json(result);
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.delete(
+    "/api/chats/:userId/conversations/:receiverId",
+    ownerMiddleware,
+    async (req, res, next) => {
+      try {
+        const { userId, receiverId } = req.params;
+
+        if (req.user._id !== userId) {
+          return res.status(403).json({
+            message: "Unauthorized: Can only delete your own chats",
+          });
+        }
+
+        const result = await chatCollection.updateOne(
+          { userId: userId },
+          {
+            $pull: {
+              conversations: { receiverId: receiverId },
+            },
+            $set: { lastUpdated: new Date() },
+          }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res.status(404).json({
+            message: "Chat conversation not found or not deleted",
+          });
+        }
+
+        res.status(200).json(result);
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.post("/api/groups", async (req, res, next) => {
     try {
       const { name, createdBy } = req.body;
 
@@ -617,7 +603,7 @@ async function run() {
     }
   });
 
-  app.get("/api/groups", async (req, res) => {
+  app.get("/api/groups", async (req, res, next) => {
     try {
       const groups = await groupCollection.find({}).toArray();
       res.status(200).json(groups);
@@ -626,11 +612,13 @@ async function run() {
     }
   });
 
-  app.get("/api/groups/:id", async (req, res) => {
+  app.get("/api/groups/:groupId", async (req, res, next) => {
     try {
-      const { id } = req.params;
+      const { groupId } = req.params;
       const { member, messages } = req.query;
-      const group = await groupCollection.findOne({ _id: new ObjectId(id) });
+      const group = await groupCollection.findOne({
+        _id: new ObjectId(groupId),
+      });
       if (!group) {
         return res.status(404).json({
           message: "Group not found",
@@ -648,7 +636,169 @@ async function run() {
     }
   });
 
-  app.get("/api/posts", async (req, res) => {
+  app.post("/api/chats/group/:groupId/messages", async (req, res, next) => {
+    try {
+      const { groupId } = req.params;
+      const { userId } = req.query;
+
+      if (!userId) {
+        return res.status(400).json({
+          message: "userId is required",
+        });
+      }
+
+      const { message } = req.body;
+      if (!message) {
+        return res.status(400).json({
+          message: "Message is required",
+        });
+      }
+
+      if (req.user._id !== userId) {
+        return res.status(403).json({
+          message: "Unauthorized: Can only add to your own chats",
+        });
+      }
+
+      const now = new Date();
+      const newMsg = {
+        _id: new ObjectId(),
+        userId: req.user._id,
+        message: message,
+        timestamp: now,
+      };
+
+      const group = await groupCollection.findOne({ groupId: groupId });
+
+      if (!group) {
+        return res.status(400).json({
+          message: "Group does not exist",
+        });
+      } else {
+        const result = await groupCollection.updateOne(
+          { groupId: groupId },
+          {
+            $push: { messages: newMsg },
+            $set: { lastUpdated: now },
+          }
+        );
+        if (result.modifiedCount === 0) {
+          return res.status(400).json({
+            message: "Message not added to group",
+          });
+        }
+        res.status(201).json(newMsg);
+      }
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch(
+    "/api/chats/group/:groupId/messages/:messageId",
+    async (req, res, next) => {
+      try {
+        const { groupId, messageId } = req.params;
+        const { userId } = req.query;
+        const { newMessage } = req.body;
+
+        if (!userId || !newMessage) {
+          return res.status(400).json({
+            message: "userId and newMessage are required",
+          });
+        }
+        const group = await groupCollection.findOne({ groupId: groupId });
+        if (!group) {
+          return res.status(404).json({
+            message: "Group not found",
+          });
+        }
+
+        const messageIndex = group.messages.findIndex(
+          (msg) => msg._id.toString() === messageId
+        );
+
+        if (messageIndex === -1) {
+          return res.status(404).json({
+            message: "Message not found",
+          });
+        }
+
+        if (group.messages[messageIndex].userId.toString() !== userId) {
+          return res.status(403).json({
+            message: "Unauthorized: You can only edit your own messages",
+          });
+        }
+
+        group.messages[messageIndex].message = newMessage;
+        group.messages[messageIndex].timestamp = new Date();
+
+        const result = await groupCollection.updateOne(
+          { groupId: groupId },
+          { $set: { messages: group.messages, lastUpdated: new Date() } }
+        );
+        if (result.modifiedCount === 0) {
+          return res.status(400).json({
+            message: "Message not updated",
+          });
+        }
+
+        res.status(200).json(group.messages[messageIndex]);
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.delete("/api/chats/group/:groupId/messages", async (req, res, next) => {
+    try {
+      const { groupId } = req.params;
+      const { userId } = req.query;
+      const { messageId } = req.body;
+
+      if (!messageId || !userId) {
+        return res.status(400).json({
+          message: "messageId and userId are required",
+        });
+      }
+
+      const group = await groupCollection.findOne({ groupId: groupId });
+      if (!group) {
+        return res.status(404).json({
+          message: "Group not found",
+        });
+      }
+
+      const findMessage = group.messages.find(
+        (msg) =>
+          msg._id.toString() === messageId && msg.userId.toString() === userId
+      );
+      if (!findMessage) {
+        return res.status(404).json({
+          message: "Message not found or you are not authorized to delete it",
+        });
+      }
+
+      group.messages.splice(messageId, 1);
+
+      const result = await groupCollection.updateOne(
+        { groupId: groupId },
+        { $set: { messages: group.messages, lastUpdated: new Date() } }
+      );
+
+      if (result.modifiedCount === 0) {
+        return res.status(400).json({
+          message: "Message not deleted",
+        });
+      }
+
+      res.status(200).json({ message: "Message deleted successfully" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/posts", async (req, res, next) => {
     try {
       const { search, skip, limit, sort, sortBy } = req.query;
       let query = {};
@@ -679,7 +829,7 @@ async function run() {
     }
   });
 
-  app.get("/api/posts/:id", async (req, res) => {
+  app.get("/api/posts/:id", async (req, res, next) => {
     try {
       const { id } = req.params;
       const post = await postCollection.findOne({
@@ -691,7 +841,7 @@ async function run() {
     }
   });
 
-  app.post("/api/posts", authMiddleware, async (req, res) => {
+  app.post("/api/posts", authMiddleware, async (req, res, next) => {
     try {
       const post = req.body;
       post.createdAt = new Date();
@@ -707,7 +857,7 @@ async function run() {
     }
   });
 
-  app.patch("/api/posts/:id", authMiddleware, async (req, res) => {
+  app.patch("/api/posts/:id", authMiddleware, async (req, res, next) => {
     try {
       const { id } = req.params;
       const post = req.body;
@@ -738,7 +888,7 @@ async function run() {
     }
   });
 
-  app.delete("/api/posts/:id", authMiddleware, async (req, res) => {
+  app.delete("/api/posts/:id", authMiddleware, async (req, res, next) => {
     try {
       const { id } = req.params;
       const token = req.headers.authorization?.split(" ")[1];
@@ -767,7 +917,7 @@ async function run() {
     }
   });
 
-  app.get("/api/comments/:postId", async (req, res) => {
+  app.get("/api/comments/:postId", async (req, res, next) => {
     try {
       const { postId } = req.params;
       const post = await postCollection.findOne({
@@ -783,7 +933,7 @@ async function run() {
     }
   });
 
-  app.post("/api/comments/:postId", async (req, res) => {
+  app.post("/api/comments/:postId", async (req, res, next) => {
     try {
       const { postId } = req.params;
       const { comment, userId, userName, userEmail } = req.body;
@@ -815,7 +965,7 @@ async function run() {
     }
   });
 
-  app.patch("/api/comments/:postId", async (req, res) => {
+  app.patch("/api/comments/:postId", async (req, res, next) => {
     try {
       const { postId } = req.params;
       const { comment, userId } = req.body;
@@ -854,12 +1004,12 @@ async function run() {
     }
   });
 
-  app.delete("/api/comments/:postId", async (req, res) => {
+  app.delete("/api/comments/:postId", async (req, res, next) => {
     try {
       const { postId } = req.params;
-      const { userId } = req.body;
+      const { userId } = req.query;
       if (!userId) {
-        return res.status(400).json({ message: "Missing user." });
+        return res.status(400).json({ message: "Missing userId." });
       }
       const post = await postCollection.findOne({
         _id: new ObjectId(postId),
@@ -868,16 +1018,16 @@ async function run() {
         return res.status(404).json({ message: "post not found." });
       }
       const commentIndex = post.comments?.findIndex(
-        (rev) => rev.userEmail === userEmail
+        (rev) => rev.userId === userId
       );
       if (commentIndex === -1) {
         return res.status(404).json({ message: "comment not found." });
       }
       const result = await postCollection.updateOne(
         { _id: new ObjectId(postId) },
-        { $pull: { comments: { userEmail: userEmail } } }
+        { $pull: { comments: { userId: userId } } }
       );
-      if (result.deletedCount === 0) {
+      if (result.modifiedCount === 0) {
         return res.status(404).json({
           message: "Failed to delete comment.",
         });
@@ -888,11 +1038,15 @@ async function run() {
     }
   });
 
-  app.use((_req, res, error) => {
-    console.error("❌ Server Error:", error.message || error);
-    res.status(error.status || 500).json({
-      message: error.message || "Internal Server Error",
-    });
+  app.use((_req, res, err, next) => {
+    try {
+      console.error("❌ Server Error:", err.message || err);
+      res.status(err.status || 500).json({
+        message: err.message || "Internal Server Error",
+      });
+    } catch (error) {
+      next(error);
+    }
   });
 }
 

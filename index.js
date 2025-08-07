@@ -75,268 +75,14 @@ const io = new Server(server, {
 
 const connectedUsers = new Map();
 
-//! We'll initialize this inside the run function to access the database
 let chatCollection;
 let groupCollection;
 
 io.on("connection", (socket) => {
   console.log(`[SOCKET CONNECTED] ${socket.id}`);
 
-  //! Handle socket connection errors
   socket.on("error", (error) => {
     console.error(`[SOCKET ERROR] ${socket.id}:`, error);
-  });
-
-  //! Store connected user info
-  socket.on("join_chat", (userData) => {
-    try {
-      const { userId, userName, userEmail } = userData;
-      if (!userId || !userName || !userEmail) return;
-
-      connectedUsers.set(socket.id, {
-        userId,
-        userName,
-        userEmail,
-        socketId: socket.id,
-      });
-      console.log(`[JOINED] ${userName}`);
-
-      const onlineUsers = Array.from(connectedUsers.values());
-
-      socket.emit("online_users", onlineUsers);
-      io.emit("update_online_users", onlineUsers);
-    } catch (error) {
-      console.error("Error in join_chat:", error);
-      socket.emit("error", { message: "Failed to join chat" });
-    }
-  });
-
-  //! Message to personal chat (no global chat)
-  socket.on("send_message", async ({ message, receiverId }) => {
-    try {
-      const user = connectedUsers.get(socket.id);
-      if (!user || !message || !receiverId) {
-        socket.emit("error", {
-          message: "User, message, and receiverId are required",
-        });
-        return;
-      }
-
-      const now = new Date();
-      const newMsg = {
-        message: message,
-        timestamp: now,
-      };
-
-      //! Only handle sender's chat document (personal messages only)
-      const userChat = await chatCollection.findOne({
-        userId: user.userId,
-      });
-
-      if (userChat) {
-        //! Check if there's already a conversation with this receiver
-        const existingUserConversation = userChat.conversations?.find(
-          (conversation) => conversation.receiverId === receiverId
-        );
-
-        if (existingUserConversation) {
-          //! Add message to existing conversation
-          await chatCollection.updateOne(
-            {
-              userId: user.userId,
-              "conversations.receiverId": receiverId,
-            },
-            {
-              $push: { "conversations.$.messages": newMsg },
-              $set: {
-                "conversations.$.lastUpdated": now,
-                lastUpdated: now,
-              },
-            }
-          );
-        } else {
-          //! Create new conversation for this receiver
-          await chatCollection.updateOne(
-            { userId: user.userId },
-            {
-              $push: {
-                conversations: {
-                  receiverId: receiverId,
-                  messages: [newMsg],
-                  lastUpdated: now,
-                },
-              },
-              $set: { lastUpdated: now },
-            }
-          );
-        }
-      } else {
-        //! Create new chat document for user
-        await chatCollection.insertOne({
-          userId: user.userId,
-          userName: user.userName,
-          userEmail: user.userEmail,
-          conversations: [
-            {
-              receiverId: receiverId,
-              messages: [newMsg],
-              lastUpdated: now,
-            },
-          ],
-          createdAt: now,
-          lastUpdated: now,
-        });
-      }
-
-      console.log(
-        `Personal message saved from ${user.userName} to ${receiverId}`
-      );
-
-      //! Emit back to sender for confirmation
-      socket.emit("receive_message", {
-        userId: user.userId,
-        receiverId: receiverId,
-        message: newMsg,
-        success: true,
-      });
-
-      //! Send message to receiver if they're online
-      const receiverSocketId = [...connectedUsers.entries()].find(
-        ([, userData]) => userData.userId === receiverId
-      )?.[0];
-
-      if (receiverSocketId) {
-        io.to(receiverSocketId).emit("receive_private_message", {
-          senderId: user.userId,
-          senderName: user.userName,
-          message: newMsg,
-        });
-      }
-    } catch (error) {
-      console.error("Error in send_message:", error);
-      socket.emit("error", { message: "Failed to send message" });
-    }
-  });
-
-  //! Group join/leave
-  socket.on("join_group", async ({ groupId, userName }) => {
-    if (!groupId || !userName) return;
-
-    const user = connectedUsers.get(socket.id);
-    if (!user) return;
-
-    socket.join(groupId);
-
-    try {
-      //! Check if group exists
-      let group = await groupCollection.findOne({ groupId });
-
-      if (!group) {
-        console.log(`Group ${groupId} not found`);
-        return;
-      }
-      //! Add user to group members if not already present
-      const isMember = group.members.some(
-        (member) => member.userId === user.userId
-      );
-      if (!isMember) {
-        await groupCollection.updateOne(
-          { groupId },
-          {
-            $push: {
-              members: {
-                userId: user.userId,
-                userName: user.userName,
-                userEmail: user.userEmail,
-                joinedAt: new Date(),
-              },
-            },
-          }
-        );
-        console.log(`${userName} added to group ${groupId} members`);
-      }
-    } catch (error) {
-      console.error("Error joining group:", error);
-    }
-
-    socket.to(groupId).emit("user_joined_group", {
-      userName,
-      groupId,
-      message: `${userName} joined group ${groupId}`,
-      joinedAt: new Date(),
-    });
-
-    console.log(`[GROUP JOINED] ${userName} -> ${groupId}`);
-  });
-
-  socket.on("leave_group", async ({ groupId, userName }) => {
-    if (!groupId || !userName) return;
-
-    const user = connectedUsers.get(socket.id);
-    socket.leave(groupId);
-
-    try {
-      if (user && groupCollection) {
-        const leaveMessage = {
-          id: Date.now() + Math.random(),
-          message: `${userName} left the group`,
-          userName: "System",
-          userEmail: "system@chat.com",
-          userId: "system",
-          groupId,
-          leavedAt: new Date(),
-        };
-
-        await groupCollection.updateOne(
-          { groupId },
-          { $push: { messages: leaveMessage } }
-        );
-      }
-    } catch (error) {
-      console.error("Error leaving group:", error);
-    }
-
-    socket.to(groupId).emit("user_left_group", {
-      userName,
-      groupId,
-      message: `${userName} left group ${groupId}`,
-      leavedAt: new Date(),
-    });
-
-    console.log(`[GROUP LEFT] ${userName} -> ${groupId}`);
-  });
-
-  //! Group messages
-  socket.on("send_group_message", async ({ groupId, message }) => {
-    const user = connectedUsers.get(socket.id);
-    if (!user || !message) return;
-
-    try {
-      const chatMessage = {
-        id: Date.now() + Math.random(),
-        groupId,
-        message,
-        userId: user.userId,
-        userName: user.userName,
-        userEmail: user.userEmail,
-        timestamp: new Date(),
-      };
-
-      //! Also save to group collection
-      await groupCollection.updateOne(
-        { groupId },
-        {
-          $push: { messages: chatMessage },
-          $set: { lastUpdated: new Date() },
-        }
-      );
-
-      console.log(`Group message saved from ${userName} in ${groupId}`);
-
-      io.to(groupId).emit("receive_group_message", chatMessage);
-    } catch (error) {
-      console.error("Error saving group message:", error);
-    }
   });
 
   socket.on("typing", ({ userName, isTyping }) => {
@@ -405,97 +151,97 @@ async function run() {
   });
 
   app.post("/api/auth", async (req, res) => {
-  try {
-    const { name, email, password } = req.body;
+    try {
+      const { name, email, password } = req.body;
 
-    if (!email || !password) {
-      return res.status(400).json({
-        message: "Email and password are required",
-      });
-    }
-
-    const user = await userCollection.findOne({ email });
-    
-    if (password === "social") {
-      if (!user) {
-        const addSocialUser = await userCollection.insertOne({
-          name: name || "Social User",
-          email: email,
-          provider: "social",
-          createdAt: new Date(),
-        });
-        
-        const payload = {
-          _id: addSocialUser.insertedId,
-          name: name || "Social User",
-          email: email,
-        };
-        
-        const JWTtoken = process.env.JWT_SECRET_TOKEN;
-        const token = jwt.sign(payload, JWTtoken);
-        
-        return res.status(200).json({ 
-          token, 
-          user: payload,
-          message: "Social user created successfully"
-        });
-      } else {
-        const payload = {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-        };
-        
-        const JWTtoken = process.env.JWT_SECRET_TOKEN;
-        const token = jwt.sign(payload, JWTtoken);
-        
-        return res.status(200).json({ 
-          token, 
-          user: payload,
-          message: "Social login successful"
+      if (!email || !password) {
+        return res.status(400).json({
+          message: "Email and password are required",
         });
       }
-    }
-    
-    if (!user) {
-      return res.status(404).json({
-        message: "User not found. Please sign up first.",
+
+      const user = await userCollection.findOne({ email });
+
+      if (password === "social") {
+        if (!user) {
+          const addSocialUser = await userCollection.insertOne({
+            name: name || "Social User",
+            email: email,
+            password: "social",
+            createdAt: new Date(),
+          });
+
+          const payload = {
+            _id: addSocialUser.insertedId,
+            name: name || "Social User",
+            email: email,
+          };
+
+          const JWTtoken = process.env.JWT_SECRET_TOKEN;
+          const token = jwt.sign(payload, JWTtoken);
+
+          return res.status(200).json({
+            token,
+            user: payload,
+            message: "Social user created successfully",
+          });
+        } else {
+          const payload = {
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+          };
+
+          const JWTtoken = process.env.JWT_SECRET_TOKEN;
+          const token = jwt.sign(payload, JWTtoken);
+
+          return res.status(200).json({
+            token,
+            user: payload,
+            message: "Social login successful",
+          });
+        }
+      }
+
+      if (!user) {
+        return res.status(404).json({
+          message: "User not found. Please sign up first.",
+        });
+      }
+
+      if (user.password === "social") {
+        return res.status(400).json({
+          message:
+            "This account was created using social login. Please use Google or GitHub to sign in.",
+        });
+      }
+
+      const isPasswordCorrect = await bcrypt.compare(password, user.password);
+      if (!isPasswordCorrect) {
+        return res.status(401).json({
+          message: "Invalid password",
+        });
+      }
+
+      const payload = {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+      };
+
+      const JWTtoken = process.env.JWT_SECRET_TOKEN;
+      const token = jwt.sign(payload, JWTtoken);
+
+      res.status(200).json({
+        token,
+        user: payload,
+        message: "Login successful",
       });
+    } catch (error) {
+      console.error("Auth error:", error);
+      next(error);
     }
-
-    if (user.password === "social") {
-      return res.status(400).json({
-        message: "This account was created using social login. Please use Google or GitHub to sign in.",
-      });
-    }
-
-    const isPasswordCorrect = await bcrypt.compare(password, user.password);
-    if (!isPasswordCorrect) {
-      return res.status(401).json({
-        message: "Invalid password",
-      });
-    }
-
-    const payload = {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-    };
-    
-    const JWTtoken = process.env.JWT_SECRET_TOKEN;
-    const token = jwt.sign(payload, JWTtoken);
-    
-    res.status(200).json({ 
-      token, 
-      user: payload,
-      message: "Login successful"
-    });
-
-  } catch (error) {
-    console.error("Auth error:", error);
-    next(error);
-  }
-});
+  });
 
   app.post("/api/users", async (req, res) => {
     try {
@@ -589,22 +335,22 @@ async function run() {
     }
   });
 
-  app.post("/api/chats", async (req, res) => {
-    try {
-      const chat = req.body;
-      // chat.createdAt = new Date();
-      const result = await chatCollection.insertOne(chat);
-      if (!result.acknowledged) {
-        return res.status(400).json({
-          message: "Chat not created",
-        });
-      }
-      res.status(201).json(result);
-    } catch (error) {
-      next(error);
-    }
-  });
-
+  // app.post("/api/chats", async (req, res) => {
+  //   try {
+  //     const chat = req.body;
+  //     // chat.createdAt = new Date();
+  //     const result = await chatCollection.insertOne(chat);
+  //     if (!result.acknowledged) {
+  //       return res.status(400).json({
+  //         message: "Chat not created",
+  //       });
+  //     }
+  //     res.status(201).json(result);
+  //   } catch (error) {
+  //     next(error);
+  //   }
+  // });
+  //! Get all personal chats overview list for a user
   app.get("/api/chats/personal/:userId", async (req, res) => {
     try {
       const { userId } = req.params;
@@ -633,7 +379,6 @@ async function run() {
         });
       }
 
-      // Return all conversations overview
       const conversationsOverview =
         userChat.conversations?.map((conv) => ({
           receiverId: conv.receiverId,
@@ -650,7 +395,7 @@ async function run() {
       next(error);
     }
   });
-
+  //! Get a specific group chat by groupId
   app.get("/api/chats/group/:groupId", async (req, res) => {
     try {
       const { groupId } = req.params;
@@ -673,10 +418,7 @@ async function run() {
       next(error);
     }
   });
-
-  // ...existing code...
-
-  // Update a specific conversation in user's chat
+  //! Update a specific conversation in user's chat
   app.patch(
     "/api/chats/:userId/conversations/:receiverId",
     ownerMiddleware,
@@ -684,7 +426,6 @@ async function run() {
       try {
         const { userId, receiverId } = req.params;
         const updates = req.body;
-        // const user = req.headers.user;
         // Ensure user can only update their own chats
         if (req.user._id !== userId) {
           return res.status(403).json({
@@ -715,34 +456,19 @@ async function run() {
           });
         }
 
-        // Notify via Socket.IO if user is online
-        const userSocketId = [...connectedUsers.entries()].find(
-          ([, userData]) => userData.userId === userId
-        )?.[0];
-
-        if (userSocketId) {
-          io.to(userSocketId).emit("conversation_updated", {
-            userId,
-            receiverId,
-            timestamp: new Date(),
-          });
-        }
-
         res.status(200).json(result);
       } catch (error) {
         next(error);
       }
     }
   );
-
-  // Delete a specific conversation from user's chat
+  //! Delete a specific conversation from user's chat
   app.delete(
     "/api/chats/:userId/conversations/:receiverId",
     ownerMiddleware,
     async (req, res) => {
       try {
         const { userId, receiverId } = req.params;
-
         // Ensure user can only delete their own chats
         if (req.user._id !== userId) {
           return res.status(403).json({
@@ -766,63 +492,12 @@ async function run() {
           });
         }
 
-        // Notify via Socket.IO if user is online
-        const userSocketId = [...connectedUsers.entries()].find(
-          ([, userData]) => userData.userId === userId
-        )?.[0];
-
-        if (userSocketId) {
-          io.to(userSocketId).emit("conversation_deleted", {
-            userId,
-            receiverId,
-            timestamp: new Date(),
-          });
-        }
-
         res.status(200).json(result);
       } catch (error) {
         next(error);
       }
     }
   );
-
-  // Delete entire chat document (all conversations for a user)
-  app.delete("/api/chats/:userId", ownerMiddleware, async (req, res) => {
-    try {
-      const { userId } = req.params;
-
-      // Ensure user can only delete their own chats
-      if (req.user._id !== userId) {
-        return res.status(403).json({
-          message: "Unauthorized: Can only delete your own chats",
-        });
-      }
-
-      const result = await chatCollection.deleteOne({ userId: userId });
-
-      if (result.deletedCount === 0) {
-        return res.status(404).json({
-          message: "Chat not found or not deleted",
-        });
-      }
-
-      // Notify via Socket.IO if user is online
-      const userSocketId = [...connectedUsers.entries()].find(
-        ([, userData]) => userData.userId === userId
-      )?.[0];
-
-      if (userSocketId) {
-        io.to(userSocketId).emit("all_chats_deleted", {
-          userId,
-          timestamp: new Date(),
-        });
-      }
-
-      res.status(200).json(result);
-    } catch (error) {
-      next(error);
-    }
-  });
 
   // Add/Update message in a conversation (alternative to Socket.IO)
   app.post(
@@ -905,85 +580,12 @@ async function run() {
           });
         }
 
-        // Notify both sender and receiver via Socket.IO
-        const senderSocketId = [...connectedUsers.entries()].find(
-          ([, userData]) => userData.userId === userId
-        )?.[0];
-        const receiverSocketId = [...connectedUsers.entries()].find(
-          ([, userData]) => userData.userId === receiverId
-        )?.[0];
-
-        if (senderSocketId) {
-          io.to(senderSocketId).emit("receive_message", {
-            userId,
-            receiverId,
-            message: newMsg,
-            success: true,
-          });
-        }
-
-        if (receiverSocketId) {
-          io.to(receiverSocketId).emit("receive_private_message", {
-            senderId: userId,
-            senderName: req.user.name,
-            message: newMsg,
-          });
-        }
-
         res.status(201).json(newMsg);
       } catch (error) {
         next(error);
       }
     }
   );
-
-  app.patch("/api/chats/:chatId", ownerMiddleware, async (req, res) => {
-    try {
-      const { chatId } = req.params;
-      const data = req.body;
-
-      const chat = await chatCollection.findOne({ _id: new ObjectId(chatId) });
-      if (!chat) {
-        return res.status(404).json({
-          message: "Chat not found",
-        });
-      }
-
-      if (chat.userId !== req.user._id) {
-        return res.status(403).json({
-          message: "Unauthorized: Can only update your own chats",
-        });
-      }
-
-      data.lastUpdated = new Date();
-      const result = await chatCollection.updateOne(
-        { _id: new ObjectId(chatId) },
-        { $set: data }
-      );
-
-      if (result.modifiedCount === 0) {
-        return res.status(400).json({
-          message: "Chat not updated",
-        });
-      }
-
-      // Notify via Socket.IO
-      const userSocketId = [...connectedUsers.entries()].find(
-        ([, userData]) => userData.userId === chat.userId
-      )?.[0];
-
-      if (userSocketId) {
-        io.to(userSocketId).emit("chat_updated", {
-          chatId,
-          updates,
-          timestamp: new Date(),
-        });
-      }
-      res.status(200).json(result);
-    } catch (error) {
-      next(error);
-    }
-  });
 
   app.post("/api/groups", async (req, res) => {
     try {

@@ -6,11 +6,12 @@ import groupRoutes from './groupRoutes.js';
 import postRoutes from './postRoutes.js';
 import likeRoutes from './likeRoutes.js';
 import commentRoutes from './commentRoutes.js';
+import saveRoutes from './saveRoutes.js';
 
 const router = express.Router();
 
 router.get('/', (_req, res) => {
-  res.status(200).json({ message: "Tanstack Server API is running!" });
+  res.status(200).send("Welcome to Tanstack Server!");
 });
 
 router.use('/auth', authRoutes);
@@ -20,5 +21,6 @@ router.use('/groups', groupRoutes);
 router.use('/posts', postRoutes);
 router.use('/likes', likeRoutes);
 router.use('/comments', commentRoutes);
+router.use('/saves', saveRoutes);
 
 export default router;

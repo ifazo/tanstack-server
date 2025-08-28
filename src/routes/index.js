@@ -11,7 +11,7 @@ import saveRoutes from './saveRoutes.js';
 const router = express.Router();
 
 router.get('/', (_req, res) => {
-  res.status(200).send("Welcome to Tanstack Server!");
+  res.status(200).json({ message: "Welcome to Tanstack Server!" });
 });
 
 router.use('/auth', authRoutes);

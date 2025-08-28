@@ -1,95 +1,94 @@
-import { 
-  getUserChatOverview as getUserChatOverviewService,
-  addMessageToPersonalChat as addMessageToPersonalChatService,
-  getConversationMessages as getConversationMessagesService,
-  deleteConversation as deleteConversationService
+import {
+  getOrCreatePersonalChat,
+  createGroupChat,
+  addMessage,
+  getChatMessages,
+  markMessagesSeen,
+  getUserChats,
+  addParticipant,
+  removeParticipant,
+  deleteChat
 } from '../services/chatService.js';
 
-export const getUserChatOverview = async (req, res, next) => {
+export const openPersonalChat = async (req, res, next) => {
+  try {
+    const { userId, otherUserId } = req.params;
+    const chat = await getOrCreatePersonalChat(userId, otherUserId);
+    res.status(200).json(chat);
+  } catch (e) { next(e); }
+};
+
+export const createGroup = async (req, res, next) => {
+  try {
+    const { creatorId, name, participants = [], avatar } = req.body;
+    if (!creatorId) return res.status(400).json({ message: 'creatorId required' });
+    const chat = await createGroupChat({ creatorId, name, participantIds: participants, avatar });
+    res.status(201).json(chat);
+  } catch (e) { next(e); }
+};
+
+export const postMessage = async (req, res, next) => {
+  try {
+    const { chatId } = req.params;
+    const { senderId, text, attachments = [] } = req.body;
+    if (!senderId) return res.status(400).json({ message: 'senderId required' });
+    if (!text && attachments.length === 0) {
+      return res.status(400).json({ message: 'text or attachments required' });
+    }
+    const msg = await addMessage({ chatId, senderId, text, attachments });
+    res.status(201).json(msg);
+  } catch (e) { next(e); }
+};
+
+export const getMessages = async (req, res, next) => {
+  try {
+    const { chatId } = req.params;
+    const { skip, limit, sort } = req.query;
+    const data = await getChatMessages(chatId, { skip, limit, sort });
+    res.status(200).json(data);
+  } catch (e) { next(e); }
+};
+
+export const seeMessages = async (req, res, next) => {
+  try {
+    const { chatId } = req.params;
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ message: 'userId required' });
+    const result = await markMessagesSeen(chatId, userId);
+    res.status(200).json(result);
+  } catch (e) { next(e); }
+};
+
+export const listUserChats = async (req, res, next) => {
   try {
     const { userId } = req.params;
-    
-    if (!userId) {
-      return res.status(400).json({ 
-        message: "userId is required" 
-      });
-    }
-
-    const chatOverview = await getUserChatOverviewService(userId);
-    res.status(200).json(chatOverview);
-  } catch (error) {
-    next(error);
-  }
+    const data = await getUserChats(userId);
+    res.status(200).json(data);
+  } catch (e) { next(e); }
 };
 
-export const addMessageToPersonalChat = async (req, res, next) => {
+export const addGroupParticipant = async (req, res, next) => {
   try {
-    const { userId, receiverId } = req.params;
-    const { message } = req.body;
-
-    // Validation
-    if (!receiverId) {
-      return res.status(400).json({
-        message: "receiverId is required",
-      });
-    }
-
-    if (!message) {
-      return res.status(400).json({
-        message: "Message is required",
-      });
-    }
-
-    // Business logic handled by service
-    const newMsg = await addMessageToPersonalChatService(
-      userId, 
-      receiverId, 
-      message,
-    );
-
-    res.status(201).json(newMsg);
-  } catch (error) {
-    next(error);
-  }
+    const { chatId } = req.params;
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ message: 'userId required' });
+    const result = await addParticipant(chatId, userId);
+    res.status(200).json(result);
+  } catch (e) { next(e); }
 };
 
-export const getConversationMessages = async (req, res, next) => {
+export const removeGroupParticipant = async (req, res, next) => {
   try {
-    const { userId, receiverId } = req.params;
-    
-    if (!userId || !receiverId) {
-      return res.status(400).json({ 
-        message: "userId and receiverId are required" 
-      });
-    }
-
-    const conversation = await getConversationMessagesService(userId, receiverId);
-    res.status(200).json(conversation);
-  } catch (error) {
-    next(error);
-  }
+    const { chatId, userId } = req.params;
+    const result = await removeParticipant(chatId, userId);
+    res.status(200).json(result);
+  } catch (e) { next(e); }
 };
 
-export const deleteConversation = async (req, res, next) => {
+export const destroyChat = async (req, res, next) => {
   try {
-    const { userId, receiverId } = req.params;
-    
-    if (!userId || !receiverId) {
-      return res.status(400).json({
-        message: "userId and receiverId are required",
-      });
-    }
-
-    const deleted = await deleteConversationService(userId, receiverId);
-    
-    if (!deleted) {
-      return res.status(404).json({
-        message: "Conversation not found or messages not deleted",
-      });
-    }
-
-    res.status(204).json();
-  } catch (error) {
-    next(error);
-  }
+    const { chatId } = req.params;
+    const result = await deleteChat(chatId);
+    res.status(200).json(result);
+  } catch (e) { next(e); }
 };

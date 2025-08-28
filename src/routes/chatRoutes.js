@@ -1,24 +1,42 @@
 import express from 'express';
-import { 
-  getUserChatOverview, 
-  addMessageToPersonalChat, 
-  getConversationMessages, 
-  deleteConversation 
+import {
+  openPersonalChat,
+  createGroup,
+  postMessage,
+  getMessages,
+  seeMessages,
+  listUserChats,
+  addGroupParticipant,
+  removeGroupParticipant,
+  destroyChat
 } from '../controllers/chatController.js';
 import { ownerMiddleware } from '../middleware/ownerMiddleware.js';
 
 const router = express.Router();
 
-// GET /api/chats/conversations/:userId - Get user chat overview
-router.get('/:userId/conversations', ownerMiddleware, getUserChatOverview);
+// Personal chat (open or get existing)
+router.post('/personal/:userId/:otherUserId', ownerMiddleware, openPersonalChat);
 
-// POST /api/chats/:userId/conversations/:receiverId - Add message to personal chat
-router.post('/:userId/conversations/:receiverId', ownerMiddleware, addMessageToPersonalChat);
+// Group chat creation
+router.post('/group', ownerMiddleware, createGroup);
 
-// GET /api/chats/:userId/conversations/:receiverId - Get conversation messages
-router.get('/:userId/conversations/:receiverId', ownerMiddleware, getConversationMessages);
+// List chats for a user
+router.get('/user/:userId', ownerMiddleware, listUserChats);
 
-// DELETE /api/chats/:userId/conversations/:receiverId - Delete conversation
-router.delete('/:userId/conversations/:receiverId', ownerMiddleware, deleteConversation);
+// Post a message
+router.post('/:chatId/messages', ownerMiddleware, postMessage);
+
+// Get messages (with pagination)
+router.get('/:chatId/messages', ownerMiddleware, getMessages);
+
+// Mark messages seen
+router.patch('/:chatId/seen', ownerMiddleware, seeMessages);
+
+// Group participant management
+router.post('/:chatId/participants', ownerMiddleware, addGroupParticipant);
+router.delete('/:chatId/participants/:userId', ownerMiddleware, removeGroupParticipant);
+
+// Delete chat (and its messages)
+router.delete('/:chatId', ownerMiddleware, destroyChat);
 
 export default router;

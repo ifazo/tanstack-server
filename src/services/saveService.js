@@ -1,5 +1,5 @@
 import { getDB } from '../config/database.js';
-import { ObjectId, Timestamp } from 'mongodb';
+import { ObjectId } from 'mongodb';
 
 const getSaveCollection = () => getDB().collection('saves');
 const getPostCollection = () => getDB().collection('posts');
@@ -18,7 +18,7 @@ export const savePost = async (postId, userId = {}) => {
   const doc = {
     postId,
     userId,
-    timestamp: Timestamp.fromDate(new Date())
+    timestamp: new Date()
   };
   const result = await saves.insertOne(doc);
   if (!result.acknowledged) throw new Error('Save failed');

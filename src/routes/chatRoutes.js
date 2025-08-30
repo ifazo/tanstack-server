@@ -4,8 +4,7 @@ import {
   createGroup,
   postMessage,
   getMessages,
-  seeMessages,
-  listUserChats,
+  userChatList,
   addGroupParticipant,
   removeGroupParticipant,
   destroyChat
@@ -21,16 +20,13 @@ router.post('/personal/:userId/:otherUserId', ownerMiddleware, openPersonalChat)
 router.post('/group', ownerMiddleware, createGroup);
 
 // List chats for a user
-router.get('/user/:userId', ownerMiddleware, listUserChats);
+router.get('/user/:userId', ownerMiddleware, userChatList);
 
 // Post a message
 router.post('/:chatId/messages', ownerMiddleware, postMessage);
 
 // Get messages (with pagination)
 router.get('/:chatId/messages', ownerMiddleware, getMessages);
-
-// Mark messages seen
-router.patch('/:chatId/seen', ownerMiddleware, seeMessages);
 
 // Group participant management
 router.post('/:chatId/participants', ownerMiddleware, addGroupParticipant);

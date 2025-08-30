@@ -3,7 +3,6 @@ import {
   createGroupChat,
   addMessage,
   getChatMessages,
-  markMessagesSeen,
   getUserChats,
   addParticipant,
   removeParticipant,
@@ -20,9 +19,9 @@ export const openPersonalChat = async (req, res, next) => {
 
 export const createGroup = async (req, res, next) => {
   try {
-    const { creatorId, name, participants = [], avatar } = req.body;
-    if (!creatorId) return res.status(400).json({ message: 'creatorId required' });
-    const chat = await createGroupChat({ creatorId, name, participantIds: participants, avatar });
+    const { createdBy, name, participants = [], image } = req.body;
+    if (!name || !createdBy) return res.status(400).json({ message: 'createdBy and name are required' });
+    const chat = await createGroupChat({ createdBy, name, participantIds: participants, image });
     res.status(201).json(chat);
   } catch (e) { next(e); }
 };
@@ -49,17 +48,7 @@ export const getMessages = async (req, res, next) => {
   } catch (e) { next(e); }
 };
 
-export const seeMessages = async (req, res, next) => {
-  try {
-    const { chatId } = req.params;
-    const { userId } = req.body;
-    if (!userId) return res.status(400).json({ message: 'userId required' });
-    const result = await markMessagesSeen(chatId, userId);
-    res.status(200).json(result);
-  } catch (e) { next(e); }
-};
-
-export const listUserChats = async (req, res, next) => {
+export const userChatList = async (req, res, next) => {
   try {
     const { userId } = req.params;
     const data = await getUserChats(userId);

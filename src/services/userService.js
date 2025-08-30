@@ -11,7 +11,7 @@ const getUserCollection = () => {
 };
 
 export const createUser = async (userData) => {
-  const { name, email, password } = userData;
+  const { name, image, email, password } = userData;
   const userCollection = getUserCollection();
   
   // Check if user already exists
@@ -25,7 +25,8 @@ export const createUser = async (userData) => {
   
   // Create user
   const user = { 
-    name, 
+    name,
+    image,
     email, 
     password: hashedPassword,
     createdAt: new Date()
@@ -41,6 +42,7 @@ export const createUser = async (userData) => {
   const payload = {
     _id: result.insertedId.toString(),
     name: user.name,
+    image: user.image,
     email: user.email,
   };
 

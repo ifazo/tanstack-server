@@ -8,17 +8,15 @@ import {
 
 export const createUser = async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, image, email, password } = req.body;
 
-    // Validation
-    if (!name || !email || !password) {
+    if (!email || !password) {
       return res.status(400).json({
-        message: "Name, email, and password are required",
+        message: "email and password are required",
       });
     }
 
-    const result = await createUserService({ name, email, password });
-    
+    const result = await createUserService({ name, image, email, password });
     res.status(201).json(result);
   } catch (error) {
     if (error.message === 'User already exists') {

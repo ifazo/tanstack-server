@@ -1,90 +1,118 @@
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
-import { getDB } from '../config/database.js';
-import { JWT_SECRET_TOKEN } from '../config/environment.js';
-import errorHandler from '../middleware/errorHandler.js';
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import { getDB } from "../config/database.js";
+import { JWT_SECRET_TOKEN } from "../config/environment.js";
+import errorHandler from "../middleware/errorHandler.js";
 
-const getUserCollection = () => {
-  const db = getDB();
-  return db.collection('users');
-};
+/**
+ * Utility: Get User collection
+ */
+const getUserCollection = () => getDB().collection("users");
 
-export const generateToken = (payload) => jwt.sign(payload, JWT_SECRET_TOKEN);
+/**
+ * Utility: Create JWT Token
+ */
+export const signToken = (payload) => jwt.sign(payload, JWT_SECRET_TOKEN);
 
+/**
+ * Find a user by email
+ */
 export const findUserByEmail = async (email) => {
-  const userCollection = getUserCollection();
-  return await userCollection.findOne({ email });
+  return await getUserCollection().findOne({ email });
 };
 
-export const createSocialUser = async ({ name, email }) => {
+/**
+ * Create a new user from social login
+ */
+export const createSocialUser = async ({ name = "", image = "", email }) => {
   const userCollection = getUserCollection();
+
   const result = await userCollection.insertOne({
-    name: name || "Social User",
+    name,
+    image,
     email,
     password: "social",
     createdAt: new Date(),
   });
+
   return {
     _id: result.insertedId.toString(),
-    name: name || "Social User",
+    name,
+    image,
     email,
   };
 };
 
-export const handleSocialLogin = async (user, email, name) => {
-  if (!user) {
-    const newUser = await createSocialUser({ name, email });
-    const payload = {
-      _id: newUser._id,
-      name: newUser.name,
-      email: newUser.email,
-    };
-    return {
-      token: generateToken(payload),
-      user: payload,
-      message: "Social user created & login successful",
-    };
-  }
-  const payload = {
-    _id: user._id.toString(),
-    name: user.name,
-    email: user.email,
-  };
+/**
+ * Handle login for social accounts
+ */
+export const handleSocialLogin = async (user, email, name, image) => {
+  const userData = user
+    ? {
+        _id: user._id.toString(),
+        name: user.name,
+        image: user.image,
+        email: user.email,
+      }
+    : await createSocialUser({ name, image, email });
+
+  const token = signToken(userData);
+
   return {
-    token: generateToken(payload),
-    user: payload,
-    message: "Social login successful",
+    token,
+    user: userData,
+    message: user
+      ? "Social login successful"
+      : "Social user created & login successful",
   };
 };
 
+/**
+ * Handle login for regular accounts
+ */
 export const handleRegularLogin = async (user, password) => {
   if (!user) errorHandler(404, "User not found");
-  if (user.password === "social") {
-    errorHandler(400, "This account was created using social login. Please use Google or GitHub to sign in.");
-  }
-  const isPasswordCorrect = await bcrypt.compare(password, user.password);
-  if (!isPasswordCorrect) errorHandler(401, "Invalid password");
 
-  const payload = {
+  if (user.password === "social") {
+    errorHandler(
+      400,
+      "This account was created using social login. Please use Google or GitHub to sign in."
+    );
+  }
+
+  const isPasswordValid = await bcrypt.compare(password, user.password);
+  if (!isPasswordValid) errorHandler(401, "Invalid password");
+
+  const userData = {
     _id: user._id.toString(),
     name: user.name,
+    image: user.image,
     email: user.email,
   };
+
   return {
-    token: generateToken(payload),
-    user: payload,
-    message: "Email Login successful",
+    token: signToken(userData),
+    user: userData,
+    message: "Email login successful",
   };
 };
 
-export const authenticateUser = async (email, password, name = null) => {
+/**
+ * Authenticate user (regular or social login)
+ */
+export const authenticateUser = async (email, password, name = null, image = null) => {
   if (!email || !password) errorHandler(400, "Email and password are required");
+
   const user = await findUserByEmail(email);
-  if (password === "social") {
-    return await handleSocialLogin(user, email, name);
-  }
-  return await handleRegularLogin(user, password);
+
+  return password === "social"
+    ? await handleSocialLogin(user, email, name, image)
+    : await handleRegularLogin(user, password);
 };
 
-export const verifyPassword = async (plainPassword, hashedPassword) =>
-  bcrypt.compare(plainPassword, hashedPassword);
+/**
+ * Verify password utility
+ */
+export const verifyPassword = async (plainPassword, hashedPassword) => {
+  return await bcrypt.compare(plainPassword, hashedPassword);
+};

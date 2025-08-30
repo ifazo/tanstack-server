@@ -1,22 +1,11 @@
-const errorHandler = (status, error, _req, res) => {
-  console.error("❌ Server Error:", error);
+export default function errorHandler(err, _req, res, next) {
+  const status = Number.isInteger(err?.status) ? err.status : 500;
+  const message = typeof err === 'string' ? err : err?.message || 'Internal Server Error';
 
-  switch (status) {
-    case 400:
-      res.status(400).json({ message: "Bad Request" });
-      break;
-    case 401:
-      res.status(401).json({ message: "Unauthorized" });
-      break;
-    case 403:
-      res.status(403).json({ message: "Forbidden" });
-      break;
-    case 404:
-      res.status(404).json({ message: "Not Found" });
-      break;
-    default:
-      res.status(500).json({ message: "Internal Server Error" });
-  }
-};
+  if (res.headersSent) return next(err);
 
-export default errorHandler;
+  return res.status(status).json({
+    success: false,
+    message
+  });
+}

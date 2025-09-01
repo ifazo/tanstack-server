@@ -73,7 +73,7 @@ export const addMessage = async ({
 
   const now = new Date();
   const msgDoc = {
-    conversationId: cId,
+    chatId: cId,
     senderId: sId,
     text,
     attachments,
@@ -100,28 +100,61 @@ export const addMessage = async ({
 
 export const getChatMessages = async (
   chatId,
+  otherUserId,
   { skip = 0, limit = 50, sort = "asc" } = {}
 ) => {
+  const chats = getChatCollection();
   const messages = getMessageCollection();
+  const users = getUserCollection();
+
   const cId = toObjectId(chatId);
+  const oId = toObjectId(otherUserId);
+
+  const chat = await chats.findOne({ _id: cId });
+  if (!chat) throw new Error("Chat not found");
+  if (!chat.participants?.some((p) => p.equals(oId))) {
+    const e = new Error("Not a participant");
+    e.status = 403;
+    throw e;
+  }
+
+  let name = null;
+  let image = null;
+  if (chat.type === "group") {
+    name = chat.name || "Group";
+    image = chat.image || null;
+  } else {
+    const otherId = (chat.participants || []).find((p) => !p.equals(oId));
+    if (otherId) {
+      const other = await users.findOne(
+        { _id: otherId },
+        { projection: { name: 1, image: 1 } }
+      );
+      name = other?.name || "Unknown User";
+      image = other?.image || null;
+    }
+  }
 
   const direction = sort === "desc" ? -1 : 1;
 
   const cursor = messages
-    .find({ conversationId: cId })
+    .find({ chatId: cId })
     .sort({ createdAt: direction })
-    .skip(parseInt(skip))
-    .limit(parseInt(limit));
+    .skip(parseInt(skip, 10))
+    .limit(parseInt(limit, 10));
 
   const data = await cursor.toArray();
-  const total = await messages.countDocuments({ conversationId: cId });
+  const total = await messages.countDocuments({ chatId: cId });
 
   return {
-    chatId,
+    _id: chat._id,
+    type: chat.type,
+    name,
+    image,
     messages: data,
     total,
     skip: Number(skip),
-    limit: Number(limit),
+    limit: Number(limit)
   };
 };
 
@@ -207,7 +240,7 @@ export const deleteChat = async (chatId) => {
   const messages = getMessageCollection();
   const cId = toObjectId(chatId);
 
-  await messages.deleteMany({ conversationId: cId });
+  await messages.deleteMany({ chatId: cId });
   const result = await chats.deleteOne({ _id: cId });
   return { deleted: result.deletedCount === 1 };
 };

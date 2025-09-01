@@ -4,27 +4,12 @@ import { getDB } from "../config/database.js";
 import { JWT_SECRET_TOKEN } from "../config/environment.js";
 import errorHandler from "../middleware/errorHandler.js";
 
-/**
- * Utility: Get User collection
- */
 const getUserCollection = () => getDB().collection("users");
-
-/**
- * Utility: Create JWT Token
- */
-export const signToken = (payload) => jwt.sign(payload, JWT_SECRET_TOKEN);
-
-/**
- * Find a user by email
- */
-export const findUserByEmail = async (email) => {
-  return await getUserCollection().findOne({ email });
-};
 
 /**
  * Create a new user from social login
  */
-export const createSocialUser = async ({ name = "", image = "", email }) => {
+export const createSocialUser = async ({ email, name = "", image = "" }) => {
   const userCollection = getUserCollection();
 
   const result = await userCollection.insertOne({
@@ -56,10 +41,8 @@ export const handleSocialLogin = async (user, email, name, image) => {
       }
     : await createSocialUser({ name, image, email });
 
-  const token = signToken(userData);
-
   return {
-    token,
+    token: jwt.sign(userData, JWT_SECRET_TOKEN),
     user: userData,
     message: user
       ? "Social login successful"
@@ -91,7 +74,7 @@ export const handleRegularLogin = async (user, password) => {
   };
 
   return {
-    token: signToken(userData),
+    token: jwt.sign(userData, JWT_SECRET_TOKEN),
     user: userData,
     message: "Email login successful",
   };
@@ -103,16 +86,49 @@ export const handleRegularLogin = async (user, password) => {
 export const authenticateUser = async (email, password, name = null, image = null) => {
   if (!email || !password) errorHandler(400, "Email and password are required");
 
-  const user = await findUserByEmail(email);
+  const user = await getUserCollection().findOne({ email });
 
   return password === "social"
     ? await handleSocialLogin(user, email, name, image)
     : await handleRegularLogin(user, password);
 };
 
-/**
- * Verify password utility
- */
-export const verifyPassword = async (plainPassword, hashedPassword) => {
-  return await bcrypt.compare(plainPassword, hashedPassword);
+export const createUser = async (userData) => {
+  const { email, password, name, image } = userData;
+  const userCollection = getUserCollection();
+  
+  const existingUser = await userCollection.findOne({ email });
+  if (existingUser) {
+    errorHandler(400, 'User already exists');
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+  
+  const user = { 
+    name,
+    image,
+    email, 
+    password: hashedPassword,
+    createdAt: new Date()
+  };
+  
+  const result = await userCollection.insertOne(user);
+  
+  if (!result.acknowledged) {
+    errorHandler(500, 'Failed to create user');
+  }
+
+  const payload = {
+    _id: result.insertedId.toString(),
+    name: user.name,
+    image: user.image,
+    email: user.email,
+  };
+
+  const token = jwt.sign(payload, JWT_SECRET_TOKEN);
+
+  return {
+    token,
+    user: payload
+  };
 };

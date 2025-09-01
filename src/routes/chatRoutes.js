@@ -10,6 +10,7 @@ import {
   destroyChat
 } from '../controllers/chatController.js';
 import { ownerMiddleware } from '../middleware/ownerMiddleware.js';
+import { decodeToken } from '../middleware/decodeToken.js';
 
 const router = express.Router();
 
@@ -26,7 +27,7 @@ router.get('/user/:userId', ownerMiddleware, userChatList);
 router.post('/:chatId/messages', ownerMiddleware, postMessage);
 
 // Get messages (with pagination)
-router.get('/:chatId/messages', ownerMiddleware, getMessages);
+router.get('/:chatId/messages', decodeToken, getMessages);
 
 // Group participant management
 router.post('/:chatId/participants', ownerMiddleware, addGroupParticipant);

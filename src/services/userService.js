@@ -1,59 +1,9 @@
 import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
 import { getDB } from '../config/database.js';
 import { ObjectId } from 'mongodb';
-import { JWT_SECRET_TOKEN } from '../config/environment.js';
 import errorHandler from '../middleware/errorHandler.js';
 
-const getUserCollection = () => {
-  const db = getDB();
-  return db.collection('users');
-};
-
-export const createUser = async (userData) => {
-  const { name, image, email, password } = userData;
-  const userCollection = getUserCollection();
-  
-  // Check if user already exists
-  const existingUser = await userCollection.findOne({ email });
-  if (existingUser) {
-    errorHandler(400, 'User already exists');
-  }
-
-  // Hash password
-  const hashedPassword = await bcrypt.hash(password, 10);
-  
-  // Create user
-  const user = { 
-    name,
-    image,
-    email, 
-    password: hashedPassword,
-    createdAt: new Date()
-  };
-  
-  const result = await userCollection.insertOne(user);
-  
-  if (!result.acknowledged) {
-    errorHandler(500, 'Failed to create user');
-  }
-
-  // Create payload for JWT
-  const payload = {
-    _id: result.insertedId.toString(),
-    name: user.name,
-    image: user.image,
-    email: user.email,
-  };
-
-  // Generate token
-  const token = jwt.sign(payload, JWT_SECRET_TOKEN);
-
-  return {
-    token,
-    user: payload
-  };
-};
+const getUserCollection = () => getDB().collection("users");
 
 export const getAllUsers = async () => {
   const userCollection = getUserCollection();
@@ -74,9 +24,7 @@ export const findUserById = async (userId) => {
 export const updateUser = async (userId, updateData) => {
   const userCollection = getUserCollection();
   
-  // Add updated timestamp
   updateData.updatedAt = new Date();
-  
   const result = await userCollection.updateOne(
     { _id: new ObjectId(userId) },
     { $set: updateData }

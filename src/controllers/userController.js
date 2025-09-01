@@ -1,39 +1,9 @@
 import { 
-  createUser as createUserService,
   getAllUsers as getAllUsersService,
   findUserById as findUserByIdService,
   updateUser as updateUserService,
   deleteUser as deleteUserService
 } from '../services/userService.js';
-
-export const createUser = async (req, res, next) => {
-  try {
-    const { name, image, email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        message: "email and password are required",
-      });
-    }
-
-    const result = await createUserService({ name, image, email, password });
-    res.status(201).json(result);
-  } catch (error) {
-    if (error.message === 'User already exists') {
-      return res.status(409).json({
-        message: error.message,
-      });
-    }
-    
-    if (error.message === 'User not created') {
-      return res.status(400).json({
-        message: error.message,
-      });
-    }
-    
-    next(error);
-  }
-};
 
 export const getAllUsers = async (req, res, next) => {
   try {

@@ -1,13 +1,13 @@
-import { app } from './src/app.js';
+import { server } from './src/app.js';
 import { connectDB } from './src/config/database.js';
 import { PORT } from './src/config/environment.js';
 
-const server = async () => {
+const startServer = async () => {
   try {
     await connectDB();
     
-    app.listen(PORT, () => {
-      console.log(`✅ Tanstack Server listening on port ${PORT} 🌍 URL: http://localhost:${PORT}`);
+    server.listen(PORT, () => {
+      console.log(`✅ Tanstack Server with Socket.IO listening on port ${PORT} 🌍 URL: http://localhost:${PORT}`);
     });
 
   } catch (error) {
@@ -15,4 +15,4 @@ const server = async () => {
   }
 };
 
-server();
+startServer();

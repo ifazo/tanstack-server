@@ -7,29 +7,6 @@ const getUserCollection = () => getDB().collection("users");
 
 const toObjectId = (id) => (id instanceof ObjectId ? id : new ObjectId(id));
 
-export const getOrCreatePersonalChat = async (userId, otherUserId) => {
-  const chats = getChatCollection();
-  const u1 = toObjectId(userId);
-  const u2 = toObjectId(otherUserId);
-
-  let chat = await chats.findOne({
-    type: "personal",
-    participants: { $all: [u1, u2], $size: 2 },
-  });
-
-  if (chat) return chat;
-
-  const now = new Date();
-  const doc = {
-    type: "personal",
-    participants: [u1, u2],
-    createdAt: now,
-    lastMessage: null,
-  };
-  const result = await chats.insertOne(doc);
-  return { _id: result.insertedId, ...doc };
-};
-
 export const createGroupChat = async ({
   name,
   image = null,
@@ -46,7 +23,31 @@ export const createGroupChat = async ({
     name: name?.trim(),
     image: image || null,
     createdBy: toObjectId(createdBy),
+    admins: [toObjectId(createdBy)],
     participants,
+    createdAt: now,
+    lastMessage: null,
+  };
+  const result = await chats.insertOne(doc);
+  return { _id: result.insertedId, ...doc };
+};
+
+export const getOrCreatePersonalChat = async (userId, receiverId) => {
+  const chats = getChatCollection();
+  const p1 = toObjectId(userId);
+  const p2 = toObjectId(receiverId);
+
+  let chat = await chats.findOne({
+    type: "personal",
+    participants: { $all: [p1, p2], $size: 2 },
+  });
+
+  if (chat) return chat;
+
+  const now = new Date();
+  const doc = {
+    type: "personal",
+    participants: [p1, p2],
     createdAt: now,
     lastMessage: null,
   };
@@ -100,7 +101,7 @@ export const addMessage = async ({
 
 export const getChatMessages = async (
   chatId,
-  otherUserId,
+  userId,
   { skip = 0, limit = 50, sort = "asc" } = {}
 ) => {
   const chats = getChatCollection();
@@ -108,11 +109,11 @@ export const getChatMessages = async (
   const users = getUserCollection();
 
   const cId = toObjectId(chatId);
-  const oId = toObjectId(otherUserId);
+  const uId = toObjectId(userId);
 
   const chat = await chats.findOne({ _id: cId });
   if (!chat) throw new Error("Chat not found");
-  if (!chat.participants?.some((p) => p.equals(oId))) {
+  if (!chat.participants?.some((p) => p.equals(uId))) {
     const e = new Error("Not a participant");
     e.status = 403;
     throw e;
@@ -124,7 +125,7 @@ export const getChatMessages = async (
     name = chat.name || "Group";
     image = chat.image || null;
   } else {
-    const otherId = (chat.participants || []).find((p) => !p.equals(oId));
+    const otherId = (chat.participants || []).find((p) => !p.equals(vId));
     if (otherId) {
       const other = await users.findOne(
         { _id: otherId },
@@ -233,6 +234,24 @@ export const removeParticipant = async (chatId, userId) => {
 
   await chats.updateOne({ _id: cId }, { $pull: { participants: uId } });
   return { chatId, removed: userId };
+};
+
+export const updateChat = async (chatId, { name, image }) => {
+  const chats = getChatCollection();
+  const cId = toObjectId(chatId);
+
+  const chat = await chats.findOne({ _id: cId });
+  if (!chat) throw new Error("Chat not found");
+
+  const updateFields = {};
+  if (name !== undefined) updateFields.name = name;
+  if (image !== undefined) updateFields.image = image;
+  if (Object.keys(updateFields).length === 0) {
+    throw new Error("No valid fields to update");
+  }
+
+  await chats.updateOne({ _id: cId }, { $set: updateFields });
+  return { chatId, updated: updateFields };
 };
 
 export const deleteChat = async (chatId) => {

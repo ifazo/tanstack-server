@@ -5,11 +5,6 @@ import errorHandler from '../middleware/errorHandler.js';
 
 const getUserCollection = () => getDB().collection("users");
 
-export const getAllUsers = async () => {
-  const userCollection = getUserCollection();
-  return await userCollection.find().toArray();
-};
-
 export const findUserById = async (userId) => {
   const userCollection = getUserCollection();
   const user = await userCollection.findOne({ _id: new ObjectId(userId) });

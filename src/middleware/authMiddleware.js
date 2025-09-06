@@ -2,21 +2,23 @@ import jwt from 'jsonwebtoken';
 import { JWT_SECRET_TOKEN } from '../config/environment.js';
 
 export const authMiddleware = (req, res, next) => {
+  const auth = req.headers.authorization || '';
+  const [scheme, token] = auth.split(' ');
+  if (scheme !== 'Bearer' || !token) {
+    return res.status(401).json({ message: 'Unauthorized: Bearer token required' });
+  }
+
   try {
-    const token = req.headers.authorization?.split(" ")[1];
-    if (!token) {
-      return res.status(401).json({ message: "Unauthorized access" });
-    }
+    const payload = jwt.verify(token, JWT_SECRET_TOKEN);
     
-    const decodedToken = jwt.verify(token, JWT_SECRET_TOKEN);
     req.user = {
-      _id: decodedToken._id,
-      name: decodedToken.name,
-      email: decodedToken.email,
+      _id: payload._id,
+      name: payload.name,
+      email: payload.email,
+      image: payload.image
     };
-    
-    next();
-  } catch (error) {
-    return res.status(401).json({ message: error.message });
+    return next();
+  } catch {
+    return res.status(401).json({ message: 'Unauthorized: Invalid token' });
   }
 };

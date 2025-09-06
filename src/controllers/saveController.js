@@ -8,7 +8,8 @@ import {
 
 export const addSave = async (req, res, next) => {
   try {
-    const { postId, userId } = req.params;
+    const userId = req.user?._id;
+    const { postId } = req.params;
     if (!postId || !userId) return res.status(400).json({ message: 'postId and userId are required' });
     const result = await savePost(postId, userId);
     res.status(201).json(result);
@@ -19,7 +20,8 @@ export const addSave = async (req, res, next) => {
 
 export const removeSave = async (req, res, next) => {
   try {
-    const { postId, userId } = req.params;
+    const userId = req.user?._id;
+    const { postId } = req.params;
     if (!postId || !userId) return res.status(400).json({ message: 'postId and userId are required' });
     const result = await unsavePost(postId, userId);
     res.status(200).json(result);
@@ -30,7 +32,8 @@ export const removeSave = async (req, res, next) => {
 
 export const toggleSaveController = async (req, res, next) => {
   try {
-    const { postId, userId } = req.params;
+    const userId = req.user?._id;
+    const { postId } = req.params;
     if (!postId || !userId) return res.status(400).json({ message: 'postId and userId are required' });
     const result = await toggleSave(postId, userId);
     res.status(200).json(result);

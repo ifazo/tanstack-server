@@ -1,22 +1,12 @@
 import { 
-  getAllUsers as getAllUsersService,
   findUserById as findUserByIdService,
   updateUser as updateUserService,
   deleteUser as deleteUserService
 } from '../services/userService.js';
 
-export const getAllUsers = async (req, res, next) => {
-  try {
-    const users = await getAllUsersService();
-    res.status(200).json(users);
-  } catch (error) {
-    next(error);
-  }
-};
-
 export const getUserById = async (req, res, next) => {
   try {
-    const { userId } = req.params;
+    const userId = req.user?._id;
 
     if (!userId) {
       return res.status(400).json({
@@ -39,7 +29,7 @@ export const getUserById = async (req, res, next) => {
 
 export const updateUser = async (req, res, next) => {
   try {
-    const { userId } = req.params;
+    const userId = req.user?._id;
     const userData = req.body;
 
     if (!userId) {
@@ -69,7 +59,7 @@ export const updateUser = async (req, res, next) => {
 
 export const deleteUser = async (req, res, next) => {
   try {
-    const { userId } = req.params;
+    const userId = req.user?._id;
 
     if (!userId) {
       return res.status(400).json({

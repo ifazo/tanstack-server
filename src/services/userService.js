@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import { getDB } from '../config/database.js';
 import { ObjectId } from 'mongodb';
-import errorHandler from '../middleware/errorHandler.js';
+import { throwError } from "../utils/errorHandler.js";
 
 const getUserCollection = () => getDB().collection("users");
 
@@ -10,7 +10,7 @@ export const findUserById = async (userId) => {
   const user = await userCollection.findOne({ _id: new ObjectId(userId) });
   
   if (!user) {
-    errorHandler(404, 'User not found');
+    throwError(404, 'User not found');
   }
   
   return user;
@@ -26,7 +26,7 @@ export const updateUser = async (userId, updateData) => {
   );
 
   if (result.modifiedCount === 0) {
-    errorHandler(404, 'User not found or no changes made');
+    throwError(404, 'User not found or no changes made');
   }
   
   return result;
@@ -40,7 +40,7 @@ export const deleteUser = async (userId) => {
   });
 
   if (result.deletedCount === 0) {
-    errorHandler(404, 'User not found');
+    throwError(404, 'User not found');
   }
   
   return result;

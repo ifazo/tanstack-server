@@ -1,6 +1,6 @@
 import { getDB } from '../config/database.js';
 import { ObjectId } from 'mongodb';
-import errorHandler from '../middleware/errorHandler.js';
+import { throwError } from "../utils/errorHandler.js";
 
 const getLikeCollection = () => {
   const db = getDB();
@@ -17,13 +17,13 @@ export const addLikeToPost = async (postId, userId) => {
   const postCollection = getPostCollection();
   
   if (!ObjectId.isValid(postId)) {
-    errorHandler(400, 'Invalid post ID format');
+    throwError(400, 'Invalid post ID format');
   }
   
   // Check if post exists
   const post = await postCollection.findOne({ _id: new ObjectId(postId) });
   if (!post) {
-    errorHandler(404, 'Post not found');
+    throwError(404, 'Post not found');
   }
   
   // Check if user already liked this post
@@ -33,7 +33,7 @@ export const addLikeToPost = async (postId, userId) => {
   });
   
   if (existingLike) {
-    errorHandler(400, 'User has already liked this post');
+    throwError(400, 'User has already liked this post');
   }
   
   const like = {
@@ -46,7 +46,7 @@ export const addLikeToPost = async (postId, userId) => {
   const result = await likeCollection.insertOne(like);
   
   if (!result.acknowledged) {
-    errorHandler(500, 'Failed to add like');
+    throwError(500, 'Failed to add like');
   }
   
   // Update post like count
@@ -70,7 +70,7 @@ export const removeLikeFromPost = async (postId, userId) => {
   const postCollection = getPostCollection();
   
   if (!ObjectId.isValid(postId)) {
-    errorHandler(400, 'Invalid post ID format');
+    throwError(400, 'Invalid post ID format');
   }
   
   // Check if like exists
@@ -80,7 +80,7 @@ export const removeLikeFromPost = async (postId, userId) => {
   });
   
   if (!existingLike) {
-    errorHandler(404, 'You have not liked this post');
+    throwError(404, 'You have not liked this post');
   }
   
   // Remove like record
@@ -90,7 +90,7 @@ export const removeLikeFromPost = async (postId, userId) => {
   });
   
   if (result.deletedCount === 0) {
-    errorHandler(500, 'Failed to remove like');
+    throwError(500, 'Failed to remove like');
   }
   
   // Update post like count (ensure it doesn't go below 0)
@@ -119,7 +119,7 @@ export const getPostLikes = async (postId, queryParams = {}) => {
   const { skip = 0, limit = 20, sort = 'desc', sortBy = 'timestamp' } = queryParams;
   
   if (!ObjectId.isValid(postId)) {
-    errorHandler(400, 'Invalid post ID format');
+    throwError(400, 'Invalid post ID format');
   }
   
   const query = { postId: postId };
@@ -155,7 +155,7 @@ export const checkUserLikedPost = async (postId, userId) => {
   const likeCollection = getLikeCollection();
   
   if (!ObjectId.isValid(postId)) {
-    errorHandler(400, 'Invalid post ID format');
+    throwError(400, 'Invalid post ID format');
   }
   
   const like = await likeCollection.findOne({
@@ -198,7 +198,7 @@ export const getPostLikeCount = async (postId) => {
   const likeCollection = getLikeCollection();
   
   if (!ObjectId.isValid(postId)) {
-    errorHandler(400, 'Invalid post ID format');
+    throwError(400, 'Invalid post ID format');
   }
   
   const count = await likeCollection.countDocuments({ postId: postId });
@@ -260,7 +260,7 @@ export const getLikeStatistics = async (postId) => {
   const likeCollection = getLikeCollection();
   
   if (!ObjectId.isValid(postId)) {
-    errorHandler(400, 'Invalid post ID format');
+    throwError(400, 'Invalid post ID format');
   }
   
   const pipeline = [

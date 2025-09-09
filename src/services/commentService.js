@@ -1,6 +1,6 @@
 import { getDB } from "../config/database.js";
 import { ObjectId } from "mongodb";
-import errorHandler from "../middleware/errorHandler.js";
+import { throwError } from "../utils/errorHandler.js";
 
 const getCommentCollection = () => {
   const db = getDB();
@@ -20,7 +20,7 @@ export const addPostComment = async ({ postId, userId, comment }) => {
   const result = await commentCollection.insertOne(newComment);
 
   if (!result.acknowledged) {
-    errorHandler(500, "Failed to add comment");
+    throwError(500, "Failed to add comment");
   }
 
   return result;
@@ -30,7 +30,7 @@ export const getPostCommentsById = async (postId) => {
   const commentCollection = getCommentCollection();
 
   if (!ObjectId.isValid(postId)) {
-    errorHandler(400, "Invalid post ID format");
+    throwError(400, "Invalid post ID format");
   }
 
   const result = await commentCollection.find({ postId: postId }).toArray();
@@ -42,7 +42,7 @@ export const updatePostComment = async ({ commentId, userId, comment }) => {
   const commentCollection = getCommentCollection();
 
   if (!ObjectId.isValid(commentId)) {
-    errorHandler(400, "Invalid comment ID format");
+    throwError(400, "Invalid comment ID format");
   }
 
   // First check if comment exists and user owns it
@@ -52,7 +52,7 @@ export const updatePostComment = async ({ commentId, userId, comment }) => {
   });
 
   if (!existingComment) {
-    errorHandler(
+    throwError(
       404,
       "Comment not found or you are not authorized to update this comment"
     );
@@ -69,7 +69,7 @@ export const updatePostComment = async ({ commentId, userId, comment }) => {
   );
 
   if (result.modifiedCount === 0) {
-    errorHandler(500, "Comment not updated or no changes made");
+    throwError(500, "Comment not updated or no changes made");
   }
 
   return result;
@@ -79,7 +79,7 @@ export const deletePostComment = async (commentId, userId) => {
   const commentCollection = getCommentCollection();
 
   if (!ObjectId.isValid(commentId)) {
-    errorHandler(400, "Invalid comment ID format");
+    throwError(400, "Invalid comment ID format");
   }
 
   // First check if comment exists and user owns it
@@ -89,7 +89,7 @@ export const deletePostComment = async (commentId, userId) => {
   });
 
   if (!existingComment) {
-    errorHandler(
+    throwError(
       404,
       "Comment not found or you are not authorized to delete this comment"
     );
@@ -100,7 +100,7 @@ export const deletePostComment = async (commentId, userId) => {
   });
 
   if (result.deletedCount === 0) {
-    errorHandler(500, "Comment not deleted");
+    throwError(500, "Comment not deleted");
   }
 
   return result;

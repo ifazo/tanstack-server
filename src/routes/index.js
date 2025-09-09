@@ -6,6 +6,9 @@ import postRoutes from './postRoutes.js';
 import likeRoutes from './likeRoutes.js';
 import commentRoutes from './commentRoutes.js';
 import saveRoutes from './saveRoutes.js';
+import friendRoutes from './friendRoutes.js';
+import followRoutes from './followRoutes.js';
+import videoRoutes from './videoRoutes.js';
 
 const router = express.Router();
 
@@ -20,5 +23,8 @@ router.use('/comments', commentRoutes);
 router.use('/chats', chatRoutes);
 router.use('/likes', likeRoutes);
 router.use('/saves', saveRoutes);
+router.use('/friends', friendRoutes);
+router.use('/follows', followRoutes);
+router.use('/videos', videoRoutes);
 
 export default router;

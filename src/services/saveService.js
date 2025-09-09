@@ -1,19 +1,20 @@
 import { getDB } from '../config/database.js';
 import { ObjectId } from 'mongodb';
+import { throwError } from "../utils/errorHandler.js";
 
 const getSaveCollection = () => getDB().collection('saves');
 const getPostCollection = () => getDB().collection('posts');
 
 export const savePost = async (postId, userId = {}) => {
-  if (!ObjectId.isValid(postId)) throw new Error('Invalid post ID');
+  if (!ObjectId.isValid(postId)) throwError(400, 'Invalid post ID');
   const saves = getSaveCollection();
   const posts = getPostCollection();
 
   const post = await posts.findOne({ _id: new ObjectId(postId) });
-  if (!post) throw new Error('Post not found');
+  if (!post) throwError(404, 'Post not found');
 
   const existing = await saves.findOne({ postId, userId });
-  if (existing) throw new Error('Already saved');
+  if (existing) throwError(409, 'Already saved');
 
   const doc = {
     postId,
@@ -21,7 +22,7 @@ export const savePost = async (postId, userId = {}) => {
     timestamp: new Date()
   };
   const result = await saves.insertOne(doc);
-  if (!result.acknowledged) throw new Error('Save failed');
+  if (!result.acknowledged) throwError(500, 'Save failed');
 
   await posts.updateOne({ _id: new ObjectId(postId) }, { $inc: { savesCount: 1 } });
 
@@ -29,12 +30,12 @@ export const savePost = async (postId, userId = {}) => {
 };
 
 export const unsavePost = async (postId, userId) => {
-  if (!ObjectId.isValid(postId)) throw new Error('Invalid post ID');
+  if (!ObjectId.isValid(postId)) throwError(400, 'Invalid post ID');
   const saves = getSaveCollection();
   const posts = getPostCollection();
 
   const result = await saves.deleteOne({ postId, userId });
-  if (result.deletedCount === 0) throw new Error('Not saved');
+  if (result.deletedCount === 0) throwError(404, 'Not saved');
 
   await posts.updateOne({ _id: new ObjectId(postId) }, { $inc: { savesCount: -1 } });
   await posts.updateOne({ _id: new ObjectId(postId), savesCount: { $lt: 0 } }, { $set: { savesCount: 0 } });
@@ -74,7 +75,7 @@ export const getUserSavedPosts = async (userId, query = {}) => {
 };
 
 export const isPostSavedByUser = async (postId, userId) => {
-  if (!ObjectId.isValid(postId)) throw new Error('Invalid post ID');
+  if (!ObjectId.isValid(postId)) throwError(400, 'Invalid post ID');
   const saves = getSaveCollection();
   const existing = await saves.findOne({ postId, userId });
   return { isSaved: !!existing };

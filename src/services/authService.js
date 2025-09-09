@@ -2,7 +2,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { getDB } from "../config/database.js";
 import { JWT_SECRET_TOKEN } from "../config/environment.js";
-import errorHandler from "../middleware/errorHandler.js";
+import { throwError } from "../utils/errorHandler.js";
 
 const getUserCollection = () => getDB().collection("users");
 
@@ -54,17 +54,17 @@ export const handleSocialLogin = async (user, email, name, image) => {
  * Handle login for regular accounts
  */
 export const handleRegularLogin = async (user, password) => {
-  if (!user) errorHandler(404, "User not found");
+  if (!user) throwError(404, "User not found");
 
   if (user.password === "social") {
-    errorHandler(
+    throwError(
       400,
       "This account was created using social login. Please use Google or GitHub to sign in."
     );
   }
 
   const isPasswordValid = await bcrypt.compare(password, user.password);
-  if (!isPasswordValid) errorHandler(401, "Invalid password");
+  if (!isPasswordValid) throwError(401, "Invalid password");
 
   const userData = {
     _id: user._id.toString(),
@@ -84,7 +84,7 @@ export const handleRegularLogin = async (user, password) => {
  * Authenticate user (regular or social login)
  */
 export const authenticateUser = async (email, password, name = null, image = null) => {
-  if (!email || !password) errorHandler(400, "Email and password are required");
+  if (!email || !password) throwError(400, "Email and password are required");
 
   const user = await getUserCollection().findOne({ email });
 
@@ -99,7 +99,7 @@ export const createUser = async (userData) => {
   
   const existingUser = await userCollection.findOne({ email });
   if (existingUser) {
-    errorHandler(400, 'User already exists');
+    throwError(400, 'User already exists');
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
@@ -115,7 +115,7 @@ export const createUser = async (userData) => {
   const result = await userCollection.insertOne(user);
   
   if (!result.acknowledged) {
-    errorHandler(500, 'Failed to create user');
+    throwError(500, 'Failed to create user');
   }
 
   const payload = {

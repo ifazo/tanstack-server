@@ -1,5 +1,6 @@
 import { ObjectId } from "mongodb";
 import { getDB } from "../config/database.js";
+import { throwError } from "../utils/errorHandler.js";
 
 const getChatCollection = () => getDB().collection("chats");
 const getMessageCollection = () => getDB().collection("messages");
@@ -70,9 +71,9 @@ export const addMessage = async ({
   const sId = toObjectId(senderId);
 
   const chat = await chats.findOne({ _id: cId });
-  if (!chat) throw new Error("Chat not found");
+  if (!chat) throwError(404, "Chat not found");
   if (!chat.participants.some((p) => p.equals(sId)))
-    throw new Error("Not a participant");
+    throwError(403, "Not a participant");
 
   const now = new Date();
   const msgDoc = {
@@ -116,11 +117,9 @@ export const getChatMessages = async (
   const uId = toObjectId(userId);
 
   const chat = await chats.findOne({ _id: cId });
-  if (!chat) throw new Error("Chat not found");
+  if (!chat) throwError(404, "Chat not found");
   if (!chat.participants?.some((p) => p.equals(uId))) {
-    const e = new Error("Not a participant");
-    e.status = 403;
-    throw e;
+    throwError(403, "Not a participant");
   }
 
   let name = null;

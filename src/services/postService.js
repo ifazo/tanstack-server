@@ -1,6 +1,6 @@
 import { getDB } from "../config/database.js";
 import { ObjectId } from "mongodb";
-import errorHandler from "../middleware/errorHandler.js";
+import { throwError } from "../utils/errorHandler.js";
 
 const getPostCollection = () => getDB().collection("posts");
 const getCommentsCollection = () => getDB().collection("comments");
@@ -16,7 +16,7 @@ export const createPost = async (postData) => {
   const result = await postCollection.insertOne(post);
 
   if (!result.acknowledged) {
-    errorHandler(500, "Failed to create post");
+    throwError(500, "Failed to create post");
   }
 
   return {
@@ -70,7 +70,7 @@ export const getPostById = async (postId) => {
   const postCollection = getPostCollection();
 
   if (!ObjectId.isValid(postId)) {
-    errorHandler(400, "Invalid post ID format");
+    throwError(400, "Invalid post ID format");
   }
 
   const post = await postCollection.findOne({
@@ -78,7 +78,7 @@ export const getPostById = async (postId) => {
   });
 
   if (!post) {
-    errorHandler(404, "Post not found");
+    throwError(404, "Post not found");
   }
 
   return post;
@@ -88,7 +88,7 @@ export const updatePost = async (postId, updateData) => {
   const postCollection = getPostCollection();
 
   if (!ObjectId.isValid(postId)) {
-    errorHandler(400, "Invalid post ID format");
+    throwError(400, "Invalid post ID format");
   }
 
   updateData.updatedAt = new Date();
@@ -99,7 +99,7 @@ export const updatePost = async (postId, updateData) => {
   );
 
   if (result.modifiedCount === 0) {
-    errorHandler(404, "Post not found or no changes made");
+    throwError(404, "Post not found or no changes made");
   }
 
   return result;
@@ -109,7 +109,7 @@ export const deletePost = async (postId) => {
   const postCollection = getPostCollection();
 
   if (!ObjectId.isValid(postId)) {
-    errorHandler(400, "Invalid post ID format");
+    throwError(400, "Invalid post ID format");
   }
 
   const result = await postCollection.deleteOne({
@@ -117,7 +117,7 @@ export const deletePost = async (postId) => {
   });
 
   if (result.deletedCount === 0) {
-    errorHandler(404, "Post not found");
+    throwError(404, "Post not found");
   }
 
   return result;
@@ -127,7 +127,7 @@ export const getPostsByUserId = async (userId) => {
   const postCollection = getPostCollection();
 
   if (!ObjectId.isValid(postId)) {
-    errorHandler(400, "Invalid post ID format");
+    throwError(400, "Invalid post ID format");
   }
 
   const posts = await postCollection
@@ -140,7 +140,7 @@ export const getPostsByUserId = async (userId) => {
 
 export const getPostStats = async (postId) => {
   if (!ObjectId.isValid(postId)) {
-    errorHandler(400, "Invalid post ID format");
+    throwError(400, "Invalid post ID format");
   }
 
   const postCollection = getPostCollection();
@@ -153,11 +153,7 @@ export const getPostStats = async (postId) => {
     { projection: { likes: 1, views: 1 } }
   );
 
-  if (!post) {
-    const err = new Error("Post not found");
-    err.status = 404;
-    throw err;
-  }
+  if (!post) throwError(404, "Post not found");
 
   const comments = await commentsCollection
     .find({

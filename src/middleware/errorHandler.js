@@ -1,11 +1,17 @@
-export default function errorHandler(err, _req, res, next) {
-  const status = Number.isInteger(err?.status) ? err.status : 500;
-  const message = typeof err === 'string' ? err : err?.message || 'Internal Server Error';
+export default function errorHandler(err, req, res, next) {
+  console.error("❌ Error:", err);
 
-  if (res.headersSent) return next(err);
+  // If it's a custom AppError
+  if (err.isOperational) {
+    return res.status(err.statusCode).json({
+      success: false,
+      message: err.message,
+    });
+  }
 
-  return res.status(status).json({
+  // Unknown / programming errors
+  return res.status(500).json({
     success: false,
-    message
+    message: "Something went wrong on our side!",
   });
 }

@@ -3,10 +3,13 @@ import {
   getUserById,
   updateUser,
   deleteUser,
+  getUsers,
 } from "../controllers/userController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
+
+router.get("/all", authMiddleware, getUsers);
 
 router.get("/", authMiddleware, getUserById);
 

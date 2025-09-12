@@ -2,14 +2,22 @@ import { getDB } from "../config/database.js";
 import { ObjectId } from "mongodb";
 import { throwError } from "../utils/errorHandler.js";
 
+const getUserCollection = () => getDB().collection("users");
 const getPostCollection = () => getDB().collection("posts");
-const getCommentsCollection = () => getDB().collection("comments");
+const getPostReactCollection = () => getDB().collection("post_reacts");
+const getPostCommentCollection = () => getDB().collection("post_comments");
 
-export const createPost = async (postData) => {
+const toObjectId = (id) => (id instanceof ObjectId ? id : new ObjectId(id));
+
+export const createPost = async ({ userId, text, images, mentions, tags }) => {
   const postCollection = getPostCollection();
 
   const post = {
-    ...postData,
+    userId: toObjectId(userId),
+    text,
+    images,
+    mentions: mentions.map(toObjectId),
+    tags,
     createdAt: new Date(),
   };
 
@@ -27,71 +35,195 @@ export const createPost = async (postData) => {
 
 export const getAllPosts = async (queryParams) => {
   const postCollection = getPostCollection();
+  const userCollection = getUserCollection();
+  const reactCollection = getPostReactCollection();
+  const commentCollection = getPostCommentCollection();
+
   const {
-    search,
+    q,
     skip = 0,
     limit = 10,
     sort = "desc",
     sortBy = "createdAt",
   } = queryParams;
 
-  let query = {};
+  const parsedSkip = parseInt(skip, 10);
+  const parsedLimit = parseInt(limit, 10);
+  const sortDirection = sort === "asc" ? 1 : -1;
 
-  if (search) {
+  const query = {};
+  if (q) {
     query.$or = [
-      { text: { $regex: search, $options: "i" } },
-      { tags: { $regex: search, $options: "i" } },
+      { text: { $regex: q, $options: "i" } },
+      { tags: { $regex: q, $options: "i" } },
     ];
   }
 
   const totalPosts = await postCollection.countDocuments(query);
 
-  let cursor = postCollection.find(query);
+  const posts = await postCollection
+    .find(query)
+    .skip(parsedSkip)
+    .limit(parsedLimit)
+    .sort({ [sortBy]: sortDirection })
+    .toArray();
 
-  cursor = cursor.skip(parseInt(skip)).limit(parseInt(limit));
+  const userIds = Array.from(
+    new Set(posts.map((p) => p.userId && String(p.userId)).filter(Boolean))
+  );
+  if (userIds.length) {
+    const userQueryIds = userIds.map((id) =>
+      ObjectId.isValid(id) ? new ObjectId(id) : id
+    );
 
-  if (sortBy && sort) {
-    const sortDirection = sort === "asc" ? 1 : -1;
-    const sortFields = { [sortBy]: sortDirection };
-    cursor = cursor.sort(sortFields);
+    const users = await userCollection
+      .find({ _id: { $in: userQueryIds } })
+      .project({ name: 1, image: 1, userName: 1 })
+      .toArray();
+    const userMap = new Map(users.map((u) => [String(u._id), u]));
+    
+    posts.forEach((p) => {
+      const u = userMap.get(String(p.userId));
+      p.user = u
+        ? {
+            name: u.name || null,
+            image: u.image || null,
+            userName: u.userName || null,
+          }
+        : null;
+    });
+  } else posts.forEach((p) => (p.user = null));
+
+  const postOids = posts.map((p) =>
+    p._id instanceof ObjectId ? p._id : new ObjectId(p._id)
+  );
+  const postIdStrings = postOids.map((o) => String(o));
+
+  const reactionsCountMap = new Map();
+  const commentsCountMap = new Map();
+
+  if (postOids.length) {
+    const reactionsAgg = await reactCollection
+      .aggregate([
+        {
+          $match: {
+            $or: [
+              { postId: { $in: postOids } },
+              { postId: { $in: postIdStrings } },
+            ],
+          },
+        },
+        { $group: { _id: "$postId", count: { $sum: 1 } } },
+      ])
+      .toArray();
+    reactionsAgg.forEach((r) => reactionsCountMap.set(String(r._id), r.count));
+
+    const commentsAgg = await commentCollection
+      .aggregate([
+        {
+          $match: {
+            $or: [
+              { postId: { $in: postOids } },
+              { postId: { $in: postIdStrings } },
+            ],
+          },
+        },
+        { $group: { _id: "$postId", count: { $sum: 1 } } },
+      ])
+      .toArray();
+    commentsAgg.forEach((r) => commentsCountMap.set(String(r._id), r.count));
   }
 
-  const posts = await cursor.toArray();
+  posts.forEach((p) => {
+    const pid = String(p._id);
+    p.reactionsCount = reactionsCountMap.get(pid) || 0;
+    p.commentsCount = commentsCountMap.get(pid) || 0;
+  });
 
-  return {
+  const result = {
     posts,
     totalPosts,
-    currentPage: Math.floor(parseInt(skip) / parseInt(limit)) + 1,
-    totalPages: Math.ceil(totalPosts / parseInt(limit)),
+    currentPage: Math.floor(parsedSkip / parsedLimit) + 1,
+    totalPages: Math.ceil(totalPosts / parsedLimit),
+    hasNextPage: parsedSkip + parsedLimit < totalPosts,
+    hasPrevPage: parsedSkip > 0,
   };
+
+  return result;
+};
+
+export const getPostsByUserId = async (userId) => {
+  const postCollection = getPostCollection();
+
+  const result = await postCollection
+    .find({ userId: new ObjectId(userId) })
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  return result;
 };
 
 export const getPostById = async (postId) => {
   const postCollection = getPostCollection();
+  const userCollection = getUserCollection();
+  const reactCollection = getPostReactCollection();
+  const commentCollection = getPostCommentCollection();
 
-  if (!ObjectId.isValid(postId)) {
-    throwError(400, "Invalid post ID format");
-  }
-
-  const post = await postCollection.findOne({
-    _id: new ObjectId(postId),
-  });
-
+  const post = await postCollection.findOne({ _id: new ObjectId(postId) });
   if (!post) {
     throwError(404, "Post not found");
   }
 
-  return post;
-};
-
-export const updatePost = async (postId, updateData) => {
-  const postCollection = getPostCollection();
-
-  if (!ObjectId.isValid(postId)) {
-    throwError(400, "Invalid post ID format");
+  let user = null;
+  if (post.userId) {
+    user = await userCollection.findOne(
+      { _id: new ObjectId(post.userId) },
+      { projection: { name: 1, image: 1, userName: 1 } }
+    );
   }
 
-  updateData.updatedAt = new Date();
+  post.user = user
+    ? {
+        name: user.name || null,
+        image: user.image || null,
+        userName: user.userName || null,
+      }
+    : null;
+
+  const reacts = await reactCollection
+    .find({ postId: new ObjectId(postId) })
+    .project({ userId: 1, react: 1, createdAt: 1 })
+    .toArray();
+
+  const reactsCount = reacts.length;
+
+  const comments = await commentCollection
+    .find({ postId: new ObjectId(postId) })
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  const commentsCount = comments.length;
+
+  return {
+    ...post,
+    reactsCount,
+    reacts,
+    commentsCount,
+    comments,
+  };
+};
+
+export const updatePost = async ({ postId, userId, text, images, mentions, tags }) => {
+  const postCollection = getPostCollection();
+
+  const updateData = {
+    userId: toObjectId(userId),
+    text,
+    images,
+    mentions: mentions.map(toObjectId),
+    tags,
+    updatedAt: new Date(),
+  };
 
   const result = await postCollection.updateOne(
     { _id: new ObjectId(postId) },
@@ -108,10 +240,6 @@ export const updatePost = async (postId, updateData) => {
 export const deletePost = async (postId) => {
   const postCollection = getPostCollection();
 
-  if (!ObjectId.isValid(postId)) {
-    throwError(400, "Invalid post ID format");
-  }
-
   const result = await postCollection.deleteOne({
     _id: new ObjectId(postId),
   });
@@ -121,52 +249,4 @@ export const deletePost = async (postId) => {
   }
 
   return result;
-};
-
-export const getPostsByUserId = async (userId) => {
-  const postCollection = getPostCollection();
-
-  if (!ObjectId.isValid(postId)) {
-    throwError(400, "Invalid post ID format");
-  }
-
-  const posts = await postCollection
-    .find({ userId: userId })
-    .sort({ createdAt: -1 })
-    .toArray();
-
-  return posts;
-};
-
-export const getPostStats = async (postId) => {
-  if (!ObjectId.isValid(postId)) {
-    throwError(400, "Invalid post ID format");
-  }
-
-  const postCollection = getPostCollection();
-  const commentsCollection = getCommentsCollection();
-
-  const oid = new ObjectId(postId);
-
-  const post = await postCollection.findOne(
-    { _id: oid },
-    { projection: { likes: 1, views: 1 } }
-  );
-
-  if (!post) throwError(404, "Post not found");
-
-  const comments = await commentsCollection
-    .find({
-      $or: [{ postId: oid }, { postId: postId }]
-    })
-    .sort({ createdAt: -1 })
-    .toArray();
-
-  return {
-    postId,
-    likes: post.likes || 0,
-    views: post.views || 0,
-    commentsCount: comments.length,
-    comments,
-  };
 };

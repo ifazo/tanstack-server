@@ -5,7 +5,6 @@ import {
   updatePost as updatePostService,
   deletePost as deletePostService,
   getPostsByUserId as getPostsByUserIdService,
-  getPostStats as getPostStatsService,
 } from "../services/postService.js";
 
 export const createPost = async (req, res, next) => {
@@ -19,9 +18,13 @@ export const createPost = async (req, res, next) => {
       });
     }
 
-    const postData = { userId, text, images, mentions, tags };
-
-    const post = await createPostService(postData);
+    const post = await createPostService({
+      userId,
+      text,
+      images,
+      mentions,
+      tags,
+    });
     res.status(201).json(post);
   } catch (error) {
     next(error);
@@ -31,7 +34,25 @@ export const createPost = async (req, res, next) => {
 export const getAllPosts = async (req, res, next) => {
   try {
     const queryParams = req.query;
+
     const result = await getAllPostsService(queryParams);
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPostsByUserId = async (req, res, next) => {
+  try {
+    const userId = req.user?._id;
+
+    if (!userId) {
+      return res.status(400).json({
+        message: "userId is required",
+      });
+    }
+
+    const result = await getPostsByUserIdService(userId);
     res.status(200).json(result);
   } catch (error) {
     next(error);
@@ -60,21 +81,20 @@ export const updatePost = async (req, res, next) => {
     const { postId } = req.params;
     const { text, images = [], mentions = [], tags = [] } = req.body;
 
-    if (!postId) {
+    if (!postId || !text) {
       return res.status(400).json({
-        message: "postId is required",
+        message: "postId and text are required",
       });
     }
 
-    const updateData = { text, images, mentions, tags };
-
-    if (!updateData || Object.keys(updateData).length === 0) {
-      return res.status(400).json({
-        message: "Update data is required",
-      });
-    }
-
-    const result = await updatePostService(postId, updateData);
+    const result = await updatePostService({
+      postId,
+      userId,
+      text,
+      images,
+      mentions,
+      tags,
+    });
     res.status(200).json(result);
   } catch (error) {
     next(error);
@@ -93,41 +113,6 @@ export const deletePost = async (req, res, next) => {
 
     const result = await deletePostService(postId);
     res.status(200).json(result);
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const getPostsByUserId = async (req, res, next) => {
-  try {
-    const userId = req.user?._id;
-    const queryParams = req.query;
-
-    if (!userId) {
-      return res.status(400).json({
-        message: "userId is required",
-      });
-    }
-
-    const result = await getPostsByUserIdService(userId, queryParams);
-    res.status(200).json(result);
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const getPostStats = async (req, res, next) => {
-  try {
-    const { postId } = req.params;
-
-    if (!postId) {
-      return res.status(400).json({
-        message: "postId is required",
-      });
-    }
-
-    const stats = await getPostStatsService(postId);
-    res.status(200).json(stats);
   } catch (error) {
     next(error);
   }

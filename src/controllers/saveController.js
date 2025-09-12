@@ -1,7 +1,6 @@
 import {
   savePost,
   unsavePost,
-  toggleSave,
   getUserSavedPosts,
   isPostSavedByUser
 } from '../services/saveService.js';
@@ -24,18 +23,6 @@ export const removeSave = async (req, res, next) => {
     const { postId } = req.params;
     if (!postId || !userId) return res.status(400).json({ message: 'postId and userId are required' });
     const result = await unsavePost(postId, userId);
-    res.status(200).json(result);
-  } catch (e) {
-    next(e);
-  }
-};
-
-export const toggleSaveController = async (req, res, next) => {
-  try {
-    const userId = req.user?._id;
-    const { postId } = req.params;
-    if (!postId || !userId) return res.status(400).json({ message: 'postId and userId are required' });
-    const result = await toggleSave(postId, userId);
     res.status(200).json(result);
   } catch (e) {
     next(e);

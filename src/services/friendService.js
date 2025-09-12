@@ -2,64 +2,32 @@ import { ObjectId } from "mongodb";
 import { getDB } from "../config/database.js";
 import { throwError } from "../utils/errorHandler.js";
 
-const getRequestCollection = () => getDB().collection("friend_requests");
 const getFriendCollection = () => getDB().collection("friends");
 const getUserCollection = () => getDB().collection("users");
 
 const toObjectId = (id) => (id instanceof ObjectId ? id : new ObjectId(id));
 
-export const listFriends = async (userId) => {
-  if (!ObjectId.isValid(userId)) throwError(400, "Invalid user id");
-  const friendsCol = getFriendCollection();
-  const usersCol = getUserCollection();
-  const uOid = toObjectId(userId);
-
-  const docs = await friendsCol.find({ participants: uOid }).toArray();
-  if (!docs.length) return [];
-
-  const otherIds = docs
-    .map(d => d.participants.find(p => !p.equals(uOid)))
-    .filter(Boolean);
-
-  if (!otherIds.length) return [];
-
-  const userDocs = await usersCol
-    .find({ _id: { $in: otherIds } })
-    .project({ name: 1, image: 1 })
-    .toArray();
-
-  const map = new Map(userDocs.map(u => [u._id.toString(), u]));
-
-  return docs.map(d => {
-    const other = d.participants.find(p => !p.equals(uOid));
-    const otherStr = other?.toString();
-    return {
-      _id: other,
-      name: map.get(otherStr)?.name || null,
-      image: map.get(otherStr)?.image || null,
-      connectedAt: d.createdAt || null
-    };
-  });
-};
-
 export const sendFriendRequest = async (fromUserId, toUserId) => {
   if (!ObjectId.isValid(fromUserId) || !ObjectId.isValid(toUserId)) throwError(400, "Invalid user id");
-  if (fromUserId === toUserId) throwError(400, "Cannot send request to yourself");
+  if (String(fromUserId) === String(toUserId)) throwError(400, "Cannot send request to yourself");
 
-  const requests = getRequestCollection();
-  const friends = getFriendCollection();
-
+  const friendsCol = getFriendCollection();
   const fromOid = toObjectId(fromUserId);
   const toOid = toObjectId(toUserId);
 
-  const already = await friends.findOne({ participants: { $all: [fromOid, toOid], $size: 2 } });
-  if (already) throwError(409, "Already friends");
+  const accepted = await friendsCol.findOne({
+    $or: [
+      { from: fromOid, to: toOid, status: "accepted" },
+      { from: toOid, to: fromOid, status: "accepted" },
+    ],
+  });
+  if (accepted) throwError(409, "Already friends");
 
-  const existing = await requests.findOne({
+  const existing = await friendsCol.findOne({
     $or: [
       { from: fromOid, to: toOid, status: "pending" },
-      { from: toOid, to: fromOid, status: "pending" }
-    ]
+      { from: toOid, to: fromOid, status: "pending" },
+    ],
   });
   if (existing) throwError(409, "Friend request already pending");
 
@@ -67,102 +35,130 @@ export const sendFriendRequest = async (fromUserId, toUserId) => {
     from: fromOid,
     to: toOid,
     status: "pending",
-    createdAt: new Date()
+    createdAt: new Date(),
   };
-  const r = await requests.insertOne(doc);
+
+  const r = await friendsCol.insertOne(doc);
   return { _id: r.insertedId, ...doc };
 };
 
 export const acceptFriendRequest = async (requestId, userId) => {
   if (!ObjectId.isValid(requestId) || !ObjectId.isValid(userId)) throwError(400, "Invalid id");
 
-  const requests = getRequestCollection();
-  const friends = getFriendCollection();
-
+  const friendsCol = getFriendCollection();
   const rOid = toObjectId(requestId);
-  const userOid = toObjectId(userId);
+  const uOid = toObjectId(userId);
 
-  const reqDoc = await requests.findOne({ _id: rOid });
+  const reqDoc = await friendsCol.findOne({ _id: rOid });
   if (!reqDoc) throwError(404, "Request not found");
-  if (!reqDoc.to.equals(userOid)) throwError(403, "Not allowed to accept");
-  if (reqDoc.status === "accepted") throwError(400, "Request already accepted");
+  if (!reqDoc.to || !reqDoc.to.equals(uOid)) throwError(403, "Not allowed to accept");
+  if (reqDoc.status === "accepted") return { message: "Already accepted", requestId };
 
-  await requests.updateOne({ _id: rOid }, { $set: { status: "accepted", respondedAt: new Date() } });
+  const now = new Date();
+  await friendsCol.updateOne(
+    { _id: rOid },
+    { $set: { status: "accepted", updatedAt: now } }
+  );
 
-  const participants = [reqDoc.from, reqDoc.to];
-
-  // check existing friendship first
-  const existing = await friends.findOne({ participants: { $all: participants, $size: 2 } });
-  if (existing) {
-    return { message: "Accepted", requestId, friendCreated: false, friend: existing };
-  }
-
-  const createdAt = new Date();
-  const insertResult = await friends.insertOne({ participants, createdAt });
-
-  return {
-    message: "Accepted",
-    requestId,
-    friendCreated: true,
-    friendId: insertResult.insertedId
-  };
+  return { message: "Accepted", requestId };
 };
 
 export const declineFriendRequest = async (requestId, userId) => {
   if (!ObjectId.isValid(requestId) || !ObjectId.isValid(userId)) throwError(400, "Invalid id");
 
-  const requests = getRequestCollection();
+  const friendsCol = getFriendCollection();
   const rOid = toObjectId(requestId);
-  const userOid = toObjectId(userId);
+  const uOid = toObjectId(userId);
 
-  const reqDoc = await requests.findOne({ _id: rOid });
+  const reqDoc = await friendsCol.findOne({ _id: rOid });
   if (!reqDoc) throwError(404, "Request not found");
-  if (!reqDoc.to.equals(userOid)) throwError(403, "Not allowed to decline");
+  if (!reqDoc.to || !reqDoc.to.equals(uOid)) throwError(403, "Not allowed to decline");
+  if (reqDoc.status === "declined") return { message: "Already declined", requestId };
 
-  await requests.updateOne({ _id: rOid }, { $set: { status: "declined", respondedAt: new Date() } });
+  const now = new Date();
+  await friendsCol.updateOne(
+    { _id: rOid },
+    { $set: { status: "declined", updatedAt: now } }
+  );
+
   return { message: "Declined", requestId };
+};
+
+export const listFriends = async (userId) => {
+  if (!ObjectId.isValid(userId)) throwError(400, "Invalid user id");
+  const friendsCol = getFriendCollection();
+  const usersCol = getUserCollection();
+  const uOid = toObjectId(userId);
+
+  const docs = await friendsCol
+    .find({ status: "accepted", $or: [{ from: uOid }, { to: uOid }] })
+    .toArray();
+
+  if (!docs.length) return [];
+
+  const otherIds = docs.map((d) => (d.from.equals(uOid) ? d.to : d.from));
+  const uniqueOther = Array.from(new Set(otherIds.map((id) => String(id)))).map((s) => toObjectId(s));
+
+  const users = await usersCol
+    .find({ _id: { $in: uniqueOther } })
+    .project({ name: 1, image: 1, username: 1 })
+    .toArray();
+  const userMap = new Map(users.map((u) => [String(u._id), u]));
+
+  return docs.map((d) => {
+    const other = d.from.equals(uOid) ? d.to : d.from;
+    const u = userMap.get(String(other));
+    return {
+      _id: other,
+      name: u?.name || null,
+      image: u?.image || null,
+      username: u?.username || null,
+      connectedAt: d.updatedAt || d.createdAt,
+      relationId: d._id,
+    };
+  });
 };
 
 export const getIncomingRequests = async (userId) => {
   if (!ObjectId.isValid(userId)) throwError(400, "Invalid user id");
-  const requests = getRequestCollection();
+  const friendsCol = getFriendCollection();
   const users = getUserCollection();
   const uOid = toObjectId(userId);
 
-  const docs = await requests
-    .find({ to: uOid, status: "pending" })
-    .sort({ createdAt: -1 })
-    .toArray();
+  const docs = await friendsCol.find({ to: uOid, status: "pending" }).sort({ createdAt: -1 }).toArray();
+  if (!docs.length) return [];
 
-  const fromIds = docs.map(d => d.from);
-  if (!fromIds.length) return [];
+  const fromIds = docs.map((d) => d.from);
+  const fromUsers = await users.find({ _id: { $in: fromIds } }).project({ name: 1, image: 1, username: 1 }).toArray();
+  const fromMap = new Map(fromUsers.map((u) => [String(u._id), u]));
 
-  const fromUsers = await users.find({ _id: { $in: fromIds } }).project({ name: 1, image: 1 }).toArray();
-  const fromMap = new Map(fromUsers.map(u => [u._id.toString(), u]));
-
-  return docs.map(d => ({ _id: d._id, from: fromMap.get(d.from.toString()) || { _id: d.from }, createdAt: d.createdAt }));
+  return docs.map((d) => ({
+    _id: d._id,
+    from: fromMap.get(String(d.from)) || { _id: d.from },
+    createdAt: d.createdAt,
+  }));
 };
 
 export const getSuggestions = async (userId, limit = 10) => {
   if (!ObjectId.isValid(userId)) throwError(400, "Invalid user id");
   const usersCol = getUserCollection();
   const friendsCol = getFriendCollection();
-  const requestsCol = getRequestCollection();
 
   const uOid = toObjectId(userId);
 
-  // gather excluded ids: self, friends, pending requests (from or to)
-  const friendDocs = await friendsCol.find({ participants: uOid }).toArray();
-  const friendIds = friendDocs.map(f => f.participants.find(p => !p.equals(uOid)).toString());
+  const accepted = await friendsCol
+    .find({ status: "accepted", $or: [{ from: uOid }, { to: uOid }] })
+    .toArray();
+  const acceptedIds = accepted.flatMap((d) => (d.from.equals(uOid) ? d.to : d.from)).map((id) => String(id));
 
-  const pending = await requestsCol.find({ $or: [{ from: uOid }, { to: uOid }] }).toArray();
-  const pendingIds = pending.flatMap(p => [p.from.toString(), p.to.toString()]);
+  const pending = await friendsCol.find({ status: "pending", $or: [{ from: uOid }, { to: uOid }] }).toArray();
+  const pendingIds = pending.flatMap((d) => (d.from.equals(uOid) ? d.to : d.from)).map((id) => String(id));
 
-  const exclude = new Set([uOid.toString(), ...friendIds, ...pendingIds]);
+  const exclude = new Set([String(uOid), ...acceptedIds, ...pendingIds]);
 
   const cursor = usersCol
-    .find({ _id: { $nin: Array.from(exclude).map(id => toObjectId(id)) } })
-    .project({ name: 1, image: 1 })
+    .find({ _id: { $nin: Array.from(exclude).map((id) => toObjectId(id)) } })
+    .project({ name: 1, image: 1, username: 1 })
     .limit(parseInt(limit, 10));
 
   const list = await cursor.toArray();

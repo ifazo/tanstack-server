@@ -11,6 +11,7 @@ export const addPostComment = async (req, res, next) => {
     const userId = req.user?._id;
     const { postId } = req.params;
     const { comment } = req.body;
+    
     if (!postId || !userId) {
       return res.status(400).json({
         message: "postId and userId are required",

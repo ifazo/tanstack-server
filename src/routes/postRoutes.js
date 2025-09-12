@@ -6,7 +6,6 @@ import {
   updatePost,
   deletePost,
   getPostsByUserId,
-  getPostStats
 } from '../controllers/postController.js';
 import { authMiddleware } from '../middleware/authMiddleware.js';
 
@@ -23,7 +22,5 @@ router.get('/:postId', getPostById);
 router.patch('/:postId', authMiddleware, updatePost);
 
 router.delete('/:postId', authMiddleware, deletePost);
-
-router.get('/:postId/stats', getPostStats);
 
 export default router;

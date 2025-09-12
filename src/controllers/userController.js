@@ -1,8 +1,18 @@
 import { 
   findUserById as findUserByIdService,
   updateUser as updateUserService,
-  deleteUser as deleteUserService
+  deleteUser as deleteUserService,
+  findUsers as findUsersService,
 } from '../services/userService.js';
+
+export const getUsers = async (req, res, next) => {
+  try {
+    const users = await findUsersService();
+    res.status(200).json(users);
+  } catch (error) {
+    next(error);
+  }
+}
 
 export const getUserById = async (req, res, next) => {
   try {
@@ -17,11 +27,6 @@ export const getUserById = async (req, res, next) => {
     const user = await findUserByIdService(userId);
     res.status(200).json(user);
   } catch (error) {
-    if (error.message === 'User not found') {
-      return res.status(404).json({
-        message: error.message,
-      });
-    }
     
     next(error);
   }
@@ -47,12 +52,6 @@ export const updateUser = async (req, res, next) => {
     const result = await updateUserService(userId, userData);
     res.status(200).json(result);
   } catch (error) {
-    if (error.message === 'User not found or updated') {
-      return res.status(404).json({
-        message: error.message,
-      });
-    }
-    
     next(error);
   }
 };
@@ -70,12 +69,6 @@ export const deleteUser = async (req, res, next) => {
     const result = await deleteUserService(userId);
     res.status(200).json(result);
   } catch (error) {
-    if (error.message === 'User not found or deleted') {
-      return res.status(404).json({
-        message: error.message,
-      });
-    }
-    
     next(error);
   }
 };

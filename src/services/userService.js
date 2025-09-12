@@ -5,6 +5,12 @@ import { throwError } from "../utils/errorHandler.js";
 
 const getUserCollection = () => getDB().collection("users");
 
+export const findUsers = async () => {
+  const userCollection = getUserCollection();
+  const users = await userCollection.find({}).toArray();
+  return users;
+}
+
 export const findUserById = async (userId) => {
   const userCollection = getUserCollection();
   const user = await userCollection.findOne({ _id: new ObjectId(userId) });

@@ -2,22 +2,21 @@ import { getDB } from "../config/database.js";
 import { ObjectId } from "mongodb";
 import { throwError } from "../utils/errorHandler.js";
 
-const getCommentCollection = () => {
-  const db = getDB();
-  return db.collection("post_comments");
-};
+const getPostCommentCollection = () => getDB().collection("post_comments");
+
+const toObjectId = (id) => (id instanceof ObjectId ? id : new ObjectId(id));
 
 export const addPostComment = async ({ postId, userId, comment }) => {
-  const commentCollection = getCommentCollection();
+  const commentCollection = getPostCommentCollection();
 
-  const newComment = {
-    postId: postId,
-    userId: userId,
+  const commentData = {
+    postId: toObjectId(postId),
+    userId: toObjectId(userId),
     comment: comment,
     createdAt: new Date(),
   };
 
-  const result = await commentCollection.insertOne(newComment);
+  const result = await commentCollection.insertOne(commentData);
 
   if (!result.acknowledged) {
     throwError(500, "Failed to add comment");
@@ -27,28 +26,21 @@ export const addPostComment = async ({ postId, userId, comment }) => {
 };
 
 export const getPostCommentsById = async (postId) => {
-  const commentCollection = getCommentCollection();
+  const commentCollection = getPostCommentCollection();
 
-  if (!ObjectId.isValid(postId)) {
-    throwError(400, "Invalid post ID format");
-  }
-
-  const result = await commentCollection.find({ postId: postId }).toArray();
+  const result = await commentCollection
+    .find({ postId: toObjectId(postId) })
+    .toArray();
 
   return result;
 };
 
 export const updatePostComment = async ({ commentId, userId, comment }) => {
-  const commentCollection = getCommentCollection();
+  const commentCollection = getPostCommentCollection();
 
-  if (!ObjectId.isValid(commentId)) {
-    throwError(400, "Invalid comment ID format");
-  }
-
-  // First check if comment exists and user owns it
   const existingComment = await commentCollection.findOne({
-    _id: new ObjectId(commentId),
-    userId: userId,
+    _id: toObjectId(commentId),
+    userId: toObjectId(userId),
   });
 
   if (!existingComment) {
@@ -64,7 +56,7 @@ export const updatePostComment = async ({ commentId, userId, comment }) => {
   };
 
   const result = await commentCollection.updateOne(
-    { _id: new ObjectId(commentId) },
+    { _id: toObjectId(commentId) },
     { $set: updatedData }
   );
 
@@ -76,7 +68,7 @@ export const updatePostComment = async ({ commentId, userId, comment }) => {
 };
 
 export const deletePostComment = async (commentId, userId) => {
-  const commentCollection = getCommentCollection();
+  const commentCollection = getPostCommentCollection();
 
   if (!ObjectId.isValid(commentId)) {
     throwError(400, "Invalid comment ID format");
@@ -84,8 +76,8 @@ export const deletePostComment = async (commentId, userId) => {
 
   // First check if comment exists and user owns it
   const existingComment = await commentCollection.findOne({
-    _id: new ObjectId(commentId),
-    userId: userId,
+    _id: toObjectId(commentId),
+    userId: toObjectId(userId),
   });
 
   if (!existingComment) {
@@ -96,7 +88,7 @@ export const deletePostComment = async (commentId, userId) => {
   }
 
   const result = await commentCollection.deleteOne({
-    _id: new ObjectId(commentId),
+    _id: toObjectId(commentId),
   });
 
   if (result.deletedCount === 0) {
@@ -107,9 +99,11 @@ export const deletePostComment = async (commentId, userId) => {
 };
 
 export const getCommentsByUserId = async (userId) => {
-  const commentCollection = getCommentCollection();
+  const commentCollection = getPostCommentCollection();
 
-  const result = await commentCollection.find({ userId: userId }).toArray();
+  const result = await commentCollection
+    .find({ userId: toObjectId(userId) })
+    .toArray();
 
   return result;
 };

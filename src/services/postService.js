@@ -42,13 +42,13 @@ export const getAllPosts = async (queryParams) => {
   const {
     q,
     skip = 0,
-    limit = 10,
-    sort = "desc",
+    limit = 20,
+    sort = "asc",
     sortBy = "createdAt",
   } = queryParams;
 
-  const parsedSkip = parseInt(skip, 10);
-  const parsedLimit = parseInt(limit, 10);
+  const parsedSkip = parseInt(skip, 20);
+  const parsedLimit = parseInt(limit, 20);
   const sortDirection = sort === "asc" ? 1 : -1;
 
   const query = {};

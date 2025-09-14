@@ -1,7 +1,6 @@
 import { getDB } from "../config/database.js";
 import { ObjectId } from "mongodb";
 import { throwError } from "../utils/errorHandler.js";
-import cloudinary from "../config/cloudinary.js";
 
 const getStoryCollection = () => getDB().collection("stories");
 const getUserCollection = () => getDB().collection("users");
@@ -9,27 +8,20 @@ const getUserCollection = () => getDB().collection("users");
 export const createStory = async ({ userId, media, type }) => {
   const storyCollection = getStoryCollection();
 
-  const uploadResult = await cloudinary.v2.uploader.upload(media, {
-    resource_type: type === "video" ? "video" : "image",
-  });
-
-  const story = {
+  const data = {
     userId: new ObjectId(userId),
-    mediaUrl: uploadResult.secure_url,
-    mediaType: type,
+    media,
+    type,
     createdAt: new Date(),
   };
 
-  const result = await storyCollection.insertOne(story);
+  const result = await storyCollection.insertOne(data);
 
   if (!result.acknowledged) {
     throwError(500, "Failed to create story");
   }
 
-  return {
-    _id: result.insertedId,
-    ...story,
-  };
+  return result;
 };
 
 export const getFriendsStories = async (userId) => {
@@ -50,6 +42,20 @@ export const getFriendsStories = async (userId) => {
 
   return stories;
 };
+
+export const getUserStories = async (userId) => {
+  const storyCollection = getStoryCollection();
+  const userCollection = getUserCollection();
+
+  const user = await userCollection.findOne({ _id: new ObjectId(userId) });
+  if (!user) {
+    throwError(404, "User not found");
+  }
+
+  const stories = await storyCollection.find({ userId: new ObjectId(userId) }).sort({ createdAt: -1 }).toArray();
+
+  return stories;
+}
 
 export const deleteStory = async (storyId, userId) => {
   const storyCollection = getStoryCollection();

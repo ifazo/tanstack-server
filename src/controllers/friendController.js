@@ -3,8 +3,10 @@ import {
   acceptFriendRequest,
   declineFriendRequest,
   getIncomingRequests,
+  getSendingRequests,
   getSuggestions,
-  listFriends
+  listFriends,
+  cancelFriendRequest
 } from "../services/friendService.js";
 
 export const sendRequest = async (req, res, next) => {
@@ -35,6 +37,15 @@ export const declineRequest = async (req, res, next) => {
   } catch (e) { next(e); }
 };
 
+export const cancelRequest = async (req, res, next) => {
+  try {
+    const userId = req.user?._id;
+    const { requestId } = req.params;
+    const result = await cancelFriendRequest(requestId, userId);
+    res.status(200).json(result);
+  } catch (e) { next(e); }
+};
+
 export const friendsList = async (req, res, next) => {
   try {
     const userId = req.user?._id;
@@ -47,6 +58,14 @@ export const incomingRequests = async (req, res, next) => {
   try {
     const userId = req.user?._id;
     const data = await getIncomingRequests(userId);
+    res.status(200).json(data);
+  } catch (e) { next(e); }
+};
+
+export const sentRequests = async (req, res, next) => {
+  try {
+    const userId = req.user?._id;
+    const data = await getSendingRequests(userId);
     res.status(200).json(data);
   } catch (e) { next(e); }
 };

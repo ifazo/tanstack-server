@@ -74,7 +74,9 @@ export const checkPostReact = async ({ userId, postId }) => {
     { projection: { react: 1 } }
   );
 
-  const result = react ? { reacted: true, react: react.react } : { reacted: false, react: null };
+  const result = react
+    ? { reacted: true, react: react.react }
+    : { reacted: false, react: null };
 
   return result;
 };

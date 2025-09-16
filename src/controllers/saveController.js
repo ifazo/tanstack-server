@@ -31,7 +31,7 @@ export const removeSave = async (req, res, next) => {
 
 export const listUserSaves = async (req, res, next) => {
   try {
-    const { userId } = req.params;
+    const userId = req.user?._id;
     if (!userId) return res.status(400).json({ message: 'userId required' });
     const result = await getUserSavedPosts(userId, req.query);
     res.status(200).json(result);
@@ -42,7 +42,8 @@ export const listUserSaves = async (req, res, next) => {
 
 export const checkSaved = async (req, res, next) => {
   try {
-    const { postId, userId } = req.params;
+    const userId = req.user?._id;
+    const { postId } = req.params;
     if (!postId || !userId) return res.status(400).json({ message: 'postId and userId are required' });
     const result = await isPostSavedByUser(postId, userId);
     res.status(200).json(result);

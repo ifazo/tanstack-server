@@ -1,5 +1,5 @@
 import {
-  getOrCreatePersonalChat,
+  createPersonalChat,
   createGroupChat,
   addMessage,
   getChatMessages,
@@ -9,10 +9,10 @@ import {
 export const openPersonalChat = async (req, res, next) => {
   try {
     const userId = req.user?._id;
-    if (!userId) return res.status(401).json({ message: "Unauthorized" });
     const { receiverId } = req.query;
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
     if (!receiverId) return res.status(400).json({ message: "receiverId is required" });
-    const chat = await getOrCreatePersonalChat(userId, receiverId);
+    const chat = await createPersonalChat(userId, receiverId);
     res.status(200).json(chat);
   } catch (e) {
     next(e);
@@ -43,13 +43,13 @@ export const createGroup = async (req, res, next) => {
 export const postMessage = async (req, res, next) => {
   try {
     const { chatId } = req.params;
-    const { text, attachments = [], replyTo = null } = req.body;
+    const { text } = req.body;
     const userId = req.user?._id;
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
-    if (!text && attachments.length === 0) {
-      return res.status(400).json({ message: "text or attachments required" });
+    if (!text) {
+      return res.status(400).json({ message: "text is required" });
     }
-    const msg = await addMessage({ chatId, senderId: userId, text, attachments, replyTo });
+    const msg = await addMessage({ chatId, userId, text });
     res.status(201).json(msg);
   } catch (e) {
     next(e);

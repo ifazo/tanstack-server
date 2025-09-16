@@ -9,12 +9,12 @@ import {
 
 const router = express.Router();
 
-router.get('/users/:userId', listUserSaves);
+router.get('/user', authMiddleware, listUserSaves);
 
 router.post('/posts/:postId', authMiddleware, addSave);
 
 router.delete('/posts/:postId', authMiddleware, removeSave);
 
-router.get('/posts/:postId/check', authMiddleware, checkSaved);
+router.get('/posts/:postId', authMiddleware, checkSaved);
 
 export default router;

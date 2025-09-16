@@ -8,28 +8,19 @@ const getUserCollection = () => getDB().collection("users");
 
 const toObjectId = (id) => (id instanceof ObjectId ? id : new ObjectId(id));
 
-export const getOrCreatePersonalChat = async (userId, receiverId) => {
+export const createPersonalChat = async (userId, receiverId) => {
   const chats = getChatCollection();
   const p1 = toObjectId(userId);
   const p2 = toObjectId(receiverId);
 
-  let chat = await chats.findOne({
-  type: "personal",
-  participants: { $all: [p1, p2] },
-  $expr: { $eq: [{ $size: "$participants" }, 2] },
-});
-
-  if (chat) return chat;
-
-  const now = new Date();
-  const doc = {
+  const data = {
     type: "personal",
     participants: [p1, p2],
-    createdAt: now,
+    createdAt: new Date(),
     lastMessage: null,
   };
-  const result = await chats.insertOne(doc);
-  return { _id: result.insertedId, ...doc };
+  const result = await chats.insertOne(data);
+  return result;
 };
 
 export const createGroupChat = async ({
@@ -43,7 +34,7 @@ export const createGroupChat = async ({
   const participants = [...new Set([userId, ...participantIds])].map(
     toObjectId
   );
-  const doc = {
+  const data = {
     type: "group",
     name: name?.trim(),
     image: image || null,
@@ -53,35 +44,31 @@ export const createGroupChat = async ({
     createdAt: now,
     lastMessage: null,
   };
-  const result = await chats.insertOne(doc);
-  return { _id: result.insertedId, ...doc };
+  const result = await chats.insertOne(data);
+  return result;
 };
 
 export const addMessage = async ({
   chatId,
-  senderId,
+  userId,
   text,
-  attachments,
-  replyTo
 }) => {
   const chats = getChatCollection();
   const messages = getMessageCollection();
 
   const cId = toObjectId(chatId);
-  const sId = toObjectId(senderId);
+  const uId = toObjectId(userId);
 
   const chat = await chats.findOne({ _id: cId });
   if (!chat) throwError(404, "Chat not found");
-  if (!chat.participants.some((p) => p.equals(sId)))
+  if (!chat.participants.some((p) => p.equals(uId)))
     throwError(403, "Not a participant");
 
   const now = new Date();
   const msgDoc = {
     chatId: cId,
-    senderId: sId,
+    userId: uId,
     text,
-    attachments,
-    replyTo,
     createdAt: now,
   };
 
@@ -92,9 +79,8 @@ export const addMessage = async ({
     {
       $set: {
         lastMessage: {
-          senderId: sId,
+          userId: uId,
           text: msgDoc.text,
-          attachments,
           createdAt: now,
         },
       },
@@ -148,7 +134,6 @@ export const getChatMessages = async (
     .limit(parseInt(limit, 10));
 
   const data = await cursor.toArray();
-  const total = await messages.countDocuments({ chatId: cId });
 
   return {
     _id: chat._id,
@@ -156,9 +141,6 @@ export const getChatMessages = async (
     name,
     image,
     messages: data,
-    total,
-    skip: Number(skip),
-    limit: Number(limit)
   };
 };
 
@@ -176,18 +158,18 @@ export const getUserChats = async (userId) => {
     list
       .filter((c) => c.type === "personal")
       .map((c) => (c.participants || []).find((p) => !p.equals(uId)))
-      .filter(Boolean) // remove undefined
+      .filter(Boolean)
       .map((oid) => oid.toString())
   );
 
   const otherUsers = await users
     .find({ _id: { $in: Array.from(otherIds).map((id) => new ObjectId(id)) } })
-    .project({ name: 1, image: 1 }) // adjust field names if needed
+    .project({ name: 1, image: 1 })
     .toArray();
 
   const otherMap = new Map(otherUsers.map((u) => [u._id.toString(), u]));
 
-  const mapped = list.map((chat) => {
+  const result = list.map((chat) => {
     if (chat.type === "group") {
       return chat;
     }
@@ -197,14 +179,10 @@ export const getUserChats = async (userId) => {
 
     return {
       ...chat,
-      name: other?.name || "Unknown User",
+      name: other?.name || "Unknown",
       image: other?.image || null,
     };
   });
 
-  return {
-    userId,
-    chats: mapped,
-    total: mapped.length,
-  };
+  return result;
 };

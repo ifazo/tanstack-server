@@ -13,6 +13,12 @@ export const createPersonalChat = async (userId, receiverId) => {
   const p1 = toObjectId(userId);
   const p2 = toObjectId(receiverId);
 
+  const existing = await chats.findOne({
+    type: "personal",
+    participants: { $all: [p1, p2], $size: 2 },
+  });
+  if (existing) return existing;
+
   const data = {
     type: "personal",
     participants: [p1, p2],
@@ -48,11 +54,7 @@ export const createGroupChat = async ({
   return result;
 };
 
-export const addMessage = async ({
-  chatId,
-  userId,
-  text,
-}) => {
+export const addMessage = async ({ chatId, userId, text }) => {
   const chats = getChatCollection();
   const messages = getMessageCollection();
 
@@ -78,11 +80,8 @@ export const addMessage = async ({
     { _id: cId },
     {
       $set: {
-        lastMessage: {
-          userId: uId,
-          text: msgDoc.text,
-          createdAt: now,
-        },
+        lastMessageId: result.insertedId,
+        updatedAt: now,
       },
     }
   );
@@ -120,7 +119,7 @@ export const getChatMessages = async (
         { _id: otherId },
         { projection: { name: 1, image: 1 } }
       );
-      name = other?.name || "Unknown User";
+      name = other?.name || null;
       image = other?.image || null;
     }
   }
@@ -147,12 +146,26 @@ export const getChatMessages = async (
 export const getUserChats = async (userId) => {
   const chats = getChatCollection();
   const users = getUserCollection();
+  const messages = getMessageCollection();
   const uId = toObjectId(userId);
 
   const list = await chats
     .find({ participants: uId })
-    .sort({ "lastMessage.createdAt": -1, createdAt: -1 })
+    .sort({ updatedAt: -1 })
     .toArray();
+
+  const lastMessageIds = list
+    .map((c) => c.lastMessageId)
+    .filter(Boolean)
+    .map(toObjectId);
+
+  const lastMessages = await messages
+    .find({ _id: { $in: lastMessageIds } })
+    .toArray();
+
+  const lastMessageMap = new Map(
+    lastMessages.map((m) => [m._id.toString(), m])
+  );
 
   const otherIds = new Set(
     list
@@ -170,8 +183,11 @@ export const getUserChats = async (userId) => {
   const otherMap = new Map(otherUsers.map((u) => [u._id.toString(), u]));
 
   const result = list.map((chat) => {
+    const lastMsg =
+      chat.lastMessageId && lastMessageMap.get(chat.lastMessageId.toString());
+
     if (chat.type === "group") {
-      return chat;
+      return { ...chat, lastMessage: lastMsg || null };
     }
 
     const otherId = (chat.participants || []).find((p) => !p.equals(uId));
@@ -179,8 +195,9 @@ export const getUserChats = async (userId) => {
 
     return {
       ...chat,
-      name: other?.name || "Unknown",
+      name: other?.name || null,
       image: other?.image || null,
+      lastMessage: lastMsg || null,
     };
   });
 

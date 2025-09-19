@@ -78,7 +78,7 @@ export const getAllPosts = async (queryParams) => {
 
     const users = await userCollection
       .find({ _id: { $in: userQueryIds } })
-      .project({ name: 1, image: 1, userName: 1 })
+      .project({ name: 1, image: 1, username: 1 })
       .toArray();
     const userMap = new Map(users.map((u) => [String(u._id), u]));
     
@@ -88,7 +88,7 @@ export const getAllPosts = async (queryParams) => {
         ? {
             name: u.name || null,
             image: u.image || null,
-            userName: u.userName || null,
+            username: u.username || null,
           }
         : null;
     });
@@ -178,7 +178,7 @@ export const getPostById = async (postId) => {
   if (post.userId) {
     user = await userCollection.findOne(
       { _id: new ObjectId(post.userId) },
-      { projection: { name: 1, image: 1, userName: 1 } }
+      { projection: { name: 1, image: 1, username: 1 } }
     );
   }
 
@@ -186,7 +186,7 @@ export const getPostById = async (postId) => {
     ? {
         name: user.name || null,
         image: user.image || null,
-        userName: user.userName || null,
+        username: user.username || null,
       }
     : null;
 

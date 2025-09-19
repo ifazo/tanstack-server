@@ -3,16 +3,90 @@ import { ObjectId } from "mongodb";
 import { throwError } from "../utils/errorHandler.js";
 
 const getPostCommentCollection = () => getDB().collection("post_comments");
+const getUserCollection = () => getDB().collection("users");
+const getPostCollection = () => getDB().collection("posts");
 
 const toObjectId = (id) => (id instanceof ObjectId ? id : new ObjectId(id));
 
-export const addPostComment = async ({ postId, userId, comment }) => {
+export const getCommentsByUserId = async (userId) => {
+  const commentCollection = getPostCommentCollection();
+  const postCollection = getPostCollection();
+
+  const result = await commentCollection
+    .aggregate([
+      {
+        $match: { userId: toObjectId(userId) },
+      },
+      {
+        $lookup: {
+          from: postCollection.collectionName,
+          localField: "postId",
+          foreignField: "_id",
+          as: "post",
+        },
+      },
+      {
+        $unwind: "$post",
+      },
+      {
+        $project: {
+          _id: 1,
+          text: 1,
+          createdAt: 1,
+          "post._id": 1,
+          "post.text": 1,
+        },
+      },
+    ])
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  return result;
+};
+
+export const getPostCommentsById = async (postId) => {
+  const commentCollection = getPostCommentCollection();
+  const userCollection = getUserCollection();
+
+  const result = await commentCollection
+    .aggregate([
+      {
+        $match: { postId: toObjectId(postId) },
+      },
+      {
+        $lookup: {
+          from: userCollection.collectionName,
+          localField: "userId",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      {
+        $unwind: "$user",
+      },
+      {
+        $project: {
+          _id: 1,
+          text: 1,
+          createdAt: 1,
+          "user._id": 1,
+          "user.name": 1,
+          "user.image": 1,
+        },
+      },
+    ])
+    .toArray();
+
+  return result;
+};
+
+export const addPostComment = async ({ postId, userId, text }) => {
   const commentCollection = getPostCommentCollection();
 
   const commentData = {
     postId: toObjectId(postId),
     userId: toObjectId(userId),
-    comment: comment,
+    text,
     createdAt: new Date(),
   };
 
@@ -25,17 +99,7 @@ export const addPostComment = async ({ postId, userId, comment }) => {
   return result;
 };
 
-export const getPostCommentsById = async (postId) => {
-  const commentCollection = getPostCommentCollection();
-
-  const result = await commentCollection
-    .find({ postId: toObjectId(postId) })
-    .toArray();
-
-  return result;
-};
-
-export const updatePostComment = async ({ commentId, userId, comment }) => {
+export const updatePostComment = async ({ commentId, userId, text }) => {
   const commentCollection = getPostCommentCollection();
 
   const existingComment = await commentCollection.findOne({
@@ -51,7 +115,7 @@ export const updatePostComment = async ({ commentId, userId, comment }) => {
   }
 
   const updatedData = {
-    comment: comment,
+    text,
     updatedAt: new Date(),
   };
 
@@ -74,7 +138,6 @@ export const deletePostComment = async (commentId, userId) => {
     throwError(400, "Invalid comment ID format");
   }
 
-  // First check if comment exists and user owns it
   const existingComment = await commentCollection.findOne({
     _id: toObjectId(commentId),
     userId: toObjectId(userId),
@@ -94,16 +157,6 @@ export const deletePostComment = async (commentId, userId) => {
   if (result.deletedCount === 0) {
     throwError(500, "Comment not deleted");
   }
-
-  return result;
-};
-
-export const getCommentsByUserId = async (userId) => {
-  const commentCollection = getPostCommentCollection();
-
-  const result = await commentCollection
-    .find({ userId: toObjectId(userId) })
-    .toArray();
 
   return result;
 };

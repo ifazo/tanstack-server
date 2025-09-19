@@ -12,9 +12,9 @@ const router = express.Router();
 
 router.get("/user", authMiddleware, getCommentsByUserId);
 
-router.post("/post/:postId", authMiddleware, addPostComment);
-
 router.get("/post/:postId", getPostCommentsById);
+
+router.post("/post/:postId", authMiddleware, addPostComment);
 
 router.patch("/:commentId", authMiddleware, updatePostComment);
 

@@ -20,7 +20,7 @@ const generateUniqueUserName = async (baseInput) => {
   const base = slugUserName(baseInput || "");
   let candidate = base || `user${Math.floor(1000 + Math.random() * 9000)}`;
   let i = 0;
-  while (await col.findOne({ userName: candidate })) {
+  while (await col.findOne({ username: candidate })) {
     i += 1;
     // append number with underscore to keep readable: e.g. name_2
     const suffix = `_${i}`;
@@ -38,13 +38,13 @@ const generateUniqueUserName = async (baseInput) => {
 export const createSocialUser = async ({ email, name = "", image = "" }) => {
   const userCollection = getUserCollection();
 
-  const userName = await generateUniqueUserName(name || email.split("@")[0]);
+  const username = await generateUniqueUserName(name || email.split("@")[0]);
 
   const result = await userCollection.insertOne({
     name,
     image,
     email,
-    userName,
+    username,
     password: "social",
     createdAt: new Date(),
   });
@@ -67,7 +67,7 @@ export const handleSocialLogin = async (user, email, name, image) => {
         name: user.name,
         image: user.image,
         email: user.email,
-        userName: user.userName || null,
+        username: user.username || null,
       }
     : await createSocialUser({ name, image, email });
 
@@ -101,7 +101,7 @@ export const handleRegularLogin = async (user, password) => {
     name: user.name,
     image: user.image,
     email: user.email,
-    userName: user.userName || null,
+    username: user.username || null,
   };
 
   return {
@@ -135,13 +135,13 @@ export const createUser = async (userData) => {
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  const userName = await generateUniqueUserName(name || email.split("@")[0]);
+  const username = await generateUniqueUserName(name || email.split("@")[0]);
   
   const user = { 
     name,
     image,
     email, 
-    userName,
+    username,
     password: hashedPassword,
     createdAt: new Date()
   };
@@ -157,7 +157,7 @@ export const createUser = async (userData) => {
     name: user.name,
     image: user.image,
     email: user.email,
-    userName: user.userName || null,
+    username: user.username || null,
   };
 
   const token = jwt.sign(payload, JWT_SECRET_TOKEN);

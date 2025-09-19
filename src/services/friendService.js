@@ -39,7 +39,7 @@ const findMutualFriends = async (userId, otherId) => {
 
   const mutualUsers = await usersCol
     .find({ _id: { $in: mutualIds.map((id) => toObjectId(id)) } })
-    .project({ name: 1, image: 1, userName: 1 })
+    .project({ name: 1, image: 1, username: 1 })
     .toArray();
 
   return mutualUsers;
@@ -170,7 +170,7 @@ export const listFriends = async (userId) => {
 
   const users = await usersCol
     .find({ _id: { $in: uniqueOther } })
-    .project({ name: 1, image: 1, userName: 1 })
+    .project({ name: 1, image: 1, username: 1 })
     .toArray();
   const userMap = new Map(users.map((u) => [String(u._id), u]));
 
@@ -183,7 +183,7 @@ export const listFriends = async (userId) => {
         _id: u?._id,
         name: u?.name || null,
         image: u?.image || null,
-        userName: u?.userName || null,
+        username: u?.username || null,
         friendedAt: d.acceptedAt || null,
       };
     })
@@ -205,7 +205,7 @@ export const getIncomingRequests = async (userId) => {
   const fromIds = docs.map((d) => d.from);
   const fromUsers = await users
     .find({ _id: { $in: fromIds } })
-    .project({ name: 1, image: 1, userName: 1 })
+    .project({ name: 1, image: 1, username: 1 })
     .toArray();
   const fromMap = new Map(fromUsers.map((u) => [String(u._id), u]));
 
@@ -239,7 +239,7 @@ export const getSendingRequests = async (userId) => {
   const toIds = docs.map((d) => d.to);
   const toUsers = await users
     .find({ _id: { $in: toIds } })
-    .project({ name: 1, image: 1, userName: 1 })
+    .project({ name: 1, image: 1, username: 1 })
     .toArray();
   const toMap = new Map(toUsers.map((u) => [String(u._id), u]));
 
@@ -283,7 +283,7 @@ export const getSuggestions = async (userId, limit = 10) => {
 
   const cursor = usersCol
     .find({ _id: { $nin: Array.from(exclude).map((id) => toObjectId(id)) } })
-    .project({ name: 1, image: 1, userName: 1 })
+    .project({ name: 1, image: 1, username: 1 })
     .sort({ createdAt: 1 })
     .limit(parseInt(limit, 12));
 

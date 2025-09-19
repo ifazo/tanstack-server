@@ -14,18 +14,22 @@ const findMutualFriends = async (userId, otherId) => {
   const uOid = toObjectId(userId);
   const oOid = toObjectId(otherId);
 
-  const myFriendsDocs = await friendsCol.find({
-    status: "accepted",
-    $or: [{ from: uOid }, { to: uOid }]
-  }).toArray();
+  const myFriendsDocs = await friendsCol
+    .find({
+      status: "accepted",
+      $or: [{ from: uOid }, { to: uOid }],
+    })
+    .toArray();
   const myFriendIds = new Set(
     myFriendsDocs.map((d) => String(d.from.equals(uOid) ? d.to : d.from))
   );
 
-  const otherFriendsDocs = await friendsCol.find({
-    status: "accepted",
-    $or: [{ from: oOid }, { to: oOid }]
-  }).toArray();
+  const otherFriendsDocs = await friendsCol
+    .find({
+      status: "accepted",
+      $or: [{ from: oOid }, { to: oOid }],
+    })
+    .toArray();
   const otherFriendIds = otherFriendsDocs.map((d) =>
     String(d.from.equals(oOid) ? d.to : d.from)
   );
@@ -41,10 +45,11 @@ const findMutualFriends = async (userId, otherId) => {
   return mutualUsers;
 };
 
-
 export const sendFriendRequest = async (fromUserId, toUserId) => {
-  if (!ObjectId.isValid(fromUserId) || !ObjectId.isValid(toUserId)) throwError(400, "Invalid user id");
-  if (String(fromUserId) === String(toUserId)) throwError(400, "Cannot send request to yourself");
+  if (!ObjectId.isValid(fromUserId) || !ObjectId.isValid(toUserId))
+    throwError(400, "Invalid user id");
+  if (String(fromUserId) === String(toUserId))
+    throwError(400, "Cannot send request to yourself");
 
   const friendsCol = getFriendCollection();
   const fromOid = toObjectId(fromUserId);
@@ -66,19 +71,21 @@ export const sendFriendRequest = async (fromUserId, toUserId) => {
   });
   if (existing) throwError(409, "Friend request already pending");
 
-  const doc = {
+  const data = {
     from: fromOid,
     to: toOid,
     status: "pending",
     createdAt: new Date(),
   };
 
-  const r = await friendsCol.insertOne(doc);
-  return { _id: r.insertedId, ...doc };
+  const result = await friendsCol.insertOne(data);
+
+  return result;
 };
 
 export const acceptFriendRequest = async (requestId, userId) => {
-  if (!ObjectId.isValid(requestId) || !ObjectId.isValid(userId)) throwError(400, "Invalid id");
+  if (!ObjectId.isValid(requestId) || !ObjectId.isValid(userId))
+    throwError(400, "Invalid id");
 
   const friendsCol = getFriendCollection();
   const rOid = toObjectId(requestId);
@@ -86,8 +93,10 @@ export const acceptFriendRequest = async (requestId, userId) => {
 
   const reqDoc = await friendsCol.findOne({ _id: rOid });
   if (!reqDoc) throwError(404, "Request not found");
-  if (!reqDoc.to || !reqDoc.to.equals(uOid)) throwError(403, "Not allowed to accept");
-  if (reqDoc.status === "accepted") return { message: "Already accepted", requestId };
+  if (!reqDoc.to || !reqDoc.to.equals(uOid))
+    throwError(403, "Not allowed to accept");
+  if (reqDoc.status === "accepted")
+    return { message: "Already accepted", requestId };
 
   const now = new Date();
   await friendsCol.updateOne(
@@ -99,7 +108,8 @@ export const acceptFriendRequest = async (requestId, userId) => {
 };
 
 export const declineFriendRequest = async (requestId, userId) => {
-  if (!ObjectId.isValid(requestId) || !ObjectId.isValid(userId)) throwError(400, "Invalid id");
+  if (!ObjectId.isValid(requestId) || !ObjectId.isValid(userId))
+    throwError(400, "Invalid id");
 
   const friendsCol = getFriendCollection();
   const rOid = toObjectId(requestId);
@@ -107,8 +117,10 @@ export const declineFriendRequest = async (requestId, userId) => {
 
   const reqDoc = await friendsCol.findOne({ _id: rOid });
   if (!reqDoc) throwError(404, "Request not found");
-  if (!reqDoc.to || !reqDoc.to.equals(uOid)) throwError(403, "Not allowed to decline");
-  if (reqDoc.status === "declined") return { message: "Already declined", requestId };
+  if (!reqDoc.to || !reqDoc.to.equals(uOid))
+    throwError(403, "Not allowed to decline");
+  if (reqDoc.status === "declined")
+    return { message: "Already declined", requestId };
 
   const now = new Date();
   await friendsCol.updateOne(
@@ -120,7 +132,8 @@ export const declineFriendRequest = async (requestId, userId) => {
 };
 
 export const cancelFriendRequest = async (requestId, actorId) => {
-  if (!ObjectId.isValid(requestId) || !ObjectId.isValid(actorId)) throwError(400, "Invalid id");
+  if (!ObjectId.isValid(requestId) || !ObjectId.isValid(actorId))
+    throwError(400, "Invalid id");
 
   const friendsCol = getFriendCollection();
   const rOid = toObjectId(requestId);
@@ -128,12 +141,14 @@ export const cancelFriendRequest = async (requestId, actorId) => {
 
   const reqDoc = await friendsCol.findOne({ _id: rOid });
   if (!reqDoc) throwError(404, "Request not found");
-  if (!reqDoc.from || !reqDoc.from.equals(actorOid)) throwError(403, "Not allowed to cancel");
-  if (reqDoc.status !== "pending") throwError(400, "Only pending requests can be cancelled");
+  if (!reqDoc.from || !reqDoc.from.equals(actorOid))
+    throwError(403, "Not allowed to cancel");
+  if (reqDoc.status !== "pending")
+    throwError(400, "Only pending requests can be cancelled");
 
-  await friendsCol.deleteOne({ _id: rOid });
+  const result = await friendsCol.deleteOne({ _id: rOid });
 
-  return { message: "Cancelled", requestId };
+  return result;
 };
 
 export const listFriends = async (userId) => {
@@ -149,7 +164,9 @@ export const listFriends = async (userId) => {
   if (!docs.length) return [];
 
   const otherIds = docs.map((d) => (d.from.equals(uOid) ? d.to : d.from));
-  const uniqueOther = Array.from(new Set(otherIds.map((id) => String(id)))).map((s) => toObjectId(s));
+  const uniqueOther = Array.from(new Set(otherIds.map((id) => String(id)))).map(
+    (s) => toObjectId(s)
+  );
 
   const users = await usersCol
     .find({ _id: { $in: uniqueOther } })
@@ -161,15 +178,13 @@ export const listFriends = async (userId) => {
     docs.map(async (d) => {
       const other = d.from.equals(uOid) ? d.to : d.from;
       const u = userMap.get(String(other));
-      const mutualFriends = await findMutualFriends(userId, other);
 
       return {
-        _id: d._id,
+        _id: u?._id,
         name: u?.name || null,
         image: u?.image || null,
         userName: u?.userName || null,
         friendedAt: d.acceptedAt || null,
-        mutualFriends,
       };
     })
   );
@@ -181,11 +196,17 @@ export const getIncomingRequests = async (userId) => {
   const users = getUserCollection();
   const uOid = toObjectId(userId);
 
-  const docs = await friendsCol.find({ to: uOid, status: "pending" }).sort({ createdAt: -1 }).toArray();
+  const docs = await friendsCol
+    .find({ to: uOid, status: "pending" })
+    .sort({ createdAt: -1 })
+    .toArray();
   if (!docs.length) return [];
 
   const fromIds = docs.map((d) => d.from);
-  const fromUsers = await users.find({ _id: { $in: fromIds } }).project({ name: 1, image: 1, userName: 1 }).toArray();
+  const fromUsers = await users
+    .find({ _id: { $in: fromIds } })
+    .project({ name: 1, image: 1, userName: 1 })
+    .toArray();
   const fromMap = new Map(fromUsers.map((u) => [String(u._id), u]));
 
   return Promise.all(
@@ -209,11 +230,17 @@ export const getSendingRequests = async (userId) => {
   const users = getUserCollection();
   const uOid = toObjectId(userId);
 
-  const docs = await friendsCol.find({ from: uOid, status: "pending" }).sort({ createdAt: -1 }).toArray();
+  const docs = await friendsCol
+    .find({ from: uOid, status: "pending" })
+    .sort({ createdAt: -1 })
+    .toArray();
   if (!docs.length) return [];
 
   const toIds = docs.map((d) => d.to);
-  const toUsers = await users.find({ _id: { $in: toIds } }).project({ name: 1, image: 1, userName: 1 }).toArray();
+  const toUsers = await users
+    .find({ _id: { $in: toIds } })
+    .project({ name: 1, image: 1, userName: 1 })
+    .toArray();
   const toMap = new Map(toUsers.map((u) => [String(u._id), u]));
 
   return Promise.all(
@@ -238,11 +265,19 @@ export const getSuggestions = async (userId, limit = 10) => {
 
   const uOid = toObjectId(userId);
 
-  const accepted = await friendsCol.find({ status: "accepted", $or: [{ from: uOid }, { to: uOid }] }).toArray();
-  const acceptedIds = accepted.flatMap((d) => (d.from.equals(uOid) ? d.to : d.from)).map((id) => String(id));
+  const accepted = await friendsCol
+    .find({ status: "accepted", $or: [{ from: uOid }, { to: uOid }] })
+    .toArray();
+  const acceptedIds = accepted
+    .flatMap((d) => (d.from.equals(uOid) ? d.to : d.from))
+    .map((id) => String(id));
 
-  const pending = await friendsCol.find({ status: "pending", $or: [{ from: uOid }, { to: uOid }] }).toArray();
-  const pendingIds = pending.flatMap((d) => (d.from.equals(uOid) ? d.to : d.from)).map((id) => String(id));
+  const pending = await friendsCol
+    .find({ status: "pending", $or: [{ from: uOid }, { to: uOid }] })
+    .toArray();
+  const pendingIds = pending
+    .flatMap((d) => (d.from.equals(uOid) ? d.to : d.from))
+    .map((id) => String(id));
 
   const exclude = new Set([String(uOid), ...acceptedIds, ...pendingIds]);
 

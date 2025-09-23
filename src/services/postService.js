@@ -16,8 +16,8 @@ export const getAllPosts = async (queryParams) => {
     sortBy = "createdAt",
   } = queryParams;
 
-  const parsedSkip = parseInt(skip, 10);
-  const parsedLimit = parseInt(limit, 10);
+  const parsedSkip = parseInt(skip);
+  const parsedLimit = parseInt(limit);
   const sortDirection = sort === "asc" ? 1 : -1;
 
   const query = {};
@@ -34,7 +34,6 @@ export const getAllPosts = async (queryParams) => {
     { $skip: parsedSkip },
     { $limit: parsedLimit },
 
-    // join user info
     {
       $lookup: {
         from: "users",
@@ -47,6 +46,8 @@ export const getAllPosts = async (queryParams) => {
     {
       $project: {
         text: 1,
+        images: 1,
+        mentions: 1,
         tags: 1,
         createdAt: 1,
         updatedAt: 1,
@@ -57,7 +58,6 @@ export const getAllPosts = async (queryParams) => {
       },
     },
 
-    // reactions count
     {
       $lookup: {
         from: "post_reacts",
@@ -77,7 +77,6 @@ export const getAllPosts = async (queryParams) => {
       },
     },
 
-    // comments count
     {
       $lookup: {
         from: "post_comments",
@@ -114,7 +113,7 @@ export const getPostsByUserId = async (userId) => {
   const postCollection = getPostCollection();
 
   const result = await postCollection
-    .find({ userId: new ObjectId(userId) })
+    .find({ userId: toObjectId(userId) })
     .sort({ createdAt: -1 })
     .toArray();
 
@@ -123,12 +122,11 @@ export const getPostsByUserId = async (userId) => {
 
 export const getPostById = async (postId) => {
   const postCollection = getPostCollection();
-  const objectId = new ObjectId(postId);
+  const objectId = toObjectId(postId);
 
   const pipeline = [
     { $match: { _id: objectId } },
 
-    // join user
     {
       $lookup: {
         from: "users",
@@ -149,7 +147,6 @@ export const getPostById = async (postId) => {
       },
     },
 
-    // get reacts
     {
       $lookup: {
         from: "post_reacts",
@@ -167,7 +164,6 @@ export const getPostById = async (postId) => {
       },
     },
 
-    // get comments
     {
       $lookup: {
         from: "post_comments",
@@ -187,6 +183,7 @@ export const getPostById = async (postId) => {
   ];
 
   const post = await postCollection.aggregate(pipeline).next();
+
   if (!post) {
     throwError(404, "Post not found");
   }
@@ -237,7 +234,7 @@ export const updatePost = async ({
   };
 
   const result = await postCollection.updateOne(
-    { _id: new ObjectId(postId), userId: toObjectId(userId) },
+    { _id: toObjectId(postId), userId: toObjectId(userId) },
     { $set: updateData }
   );
 
@@ -256,7 +253,7 @@ export const deletePost = async (postId) => {
   const postCollection = getPostCollection();
 
   const result = await postCollection.deleteOne({
-    _id: new ObjectId(postId),
+    _id: toObjectId(postId),
   });
 
   if (result.deletedCount !== 1) {

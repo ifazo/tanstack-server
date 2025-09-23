@@ -67,7 +67,7 @@ export const handleSocialLogin = async ({user, email, name, image}) => {
         name: user.name,
         image: user.image,
         email: user.email,
-        username: user.username || null,
+        username: user.username,
       }
     : await createSocialUser({ name, image, email });
 
@@ -96,7 +96,7 @@ export const handleRegularLogin = async ({user, password}) => {
   const isPasswordValid = await bcrypt.compare(password, user.password);
   if (!isPasswordValid) throwError(401, "Invalid password");
 
-  const userData = {
+  const payload = {
     _id: user._id.toString(),
     name: user.name,
     image: user.image,
@@ -105,8 +105,8 @@ export const handleRegularLogin = async ({user, password}) => {
   };
 
   return {
-    token: jwt.sign(userData, JWT_SECRET_TOKEN),
-    user: userData,
+    token: jwt.sign(payload, JWT_SECRET_TOKEN),
+    user: payload,
     message: "Email login successful",
   };
 };

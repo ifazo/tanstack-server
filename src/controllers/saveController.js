@@ -10,7 +10,7 @@ export const addSave = async (req, res, next) => {
     const userId = req.user?._id;
     const { postId } = req.params;
     if (!postId || !userId) return res.status(400).json({ message: 'postId and userId are required' });
-    const result = await savePost(postId, userId);
+    const result = await savePost({postId, userId});
     res.status(201).json(result);
   } catch (e) {
     next(e);
@@ -22,7 +22,7 @@ export const removeSave = async (req, res, next) => {
     const userId = req.user?._id;
     const { postId } = req.params;
     if (!postId || !userId) return res.status(400).json({ message: 'postId and userId are required' });
-    const result = await unsavePost(postId, userId);
+    const result = await unsavePost({postId, userId});
     res.status(200).json(result);
   } catch (e) {
     next(e);
@@ -45,7 +45,7 @@ export const checkSaved = async (req, res, next) => {
     const userId = req.user?._id;
     const { postId } = req.params;
     if (!postId || !userId) return res.status(400).json({ message: 'postId and userId are required' });
-    const result = await isPostSavedByUser(postId, userId);
+    const result = await isPostSavedByUser({postId, userId});
     res.status(200).json(result);
   } catch (e) {
     if (e.message === 'Invalid post ID') return res.status(400).json({ message: e.message });

@@ -9,7 +9,7 @@ import { authMiddleware } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-router.get("/all", authMiddleware, getUsers);
+router.get("/search", authMiddleware, getUsers);
 
 router.get("/", authMiddleware, getUserById);
 

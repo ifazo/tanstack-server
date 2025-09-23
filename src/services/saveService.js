@@ -2,12 +2,59 @@ import { getDB } from "../config/database.js";
 import { ObjectId } from "mongodb";
 import { throwError } from "../utils/errorHandler.js";
 
-const getPostCollection = () => getDB().collection("posts");
 const getSaveCollection = () => getDB().collection("post_saves");
 
 const toObjectId = (id) => (id instanceof ObjectId ? id : new ObjectId(id));
 
-export const savePost = async (postId, userId = {}) => {
+export const getUserSavedPosts = async (userId) => {
+  const saveCollection = getSaveCollection();
+
+  const pipeline = [
+    {
+      $match: { userId: toObjectId(userId) },
+    },
+    {
+      $lookup: {
+        from: "posts",
+        localField: "postId",
+        foreignField: "_id",
+        as: "post",
+      },
+    },
+    { $unwind: "$post" },
+
+    {
+      $lookup: {
+        from: "users",
+        localField: "post.userId",
+        foreignField: "_id",
+        as: "postUser",
+      },
+    },
+    { $unwind: "$postUser" },
+
+    {
+      $project: {
+        _id: 1,
+        createdAt: 1,
+
+        "post._id": 1,
+        "post.text": 1,
+        "post.createdAt": 1,
+
+        "postUser._id": 1,
+        "postUser.name": 1,
+        "postUser.image": 1,
+        "postUser.username": 1,
+      },
+    },
+  ];
+
+  const result = await saveCollection.aggregate(pipeline).toArray();
+  return result;
+};
+
+export const savePost = async ({postId, userId}) => {
   if (!ObjectId.isValid(postId)) throwError(400, "Invalid post ID");
   const saves = getSaveCollection();
 
@@ -27,7 +74,7 @@ export const savePost = async (postId, userId = {}) => {
   return result;
 };
 
-export const unsavePost = async (postId, userId) => {
+export const unsavePost = async ({ postId, userId }) => {
   if (!ObjectId.isValid(postId)) throwError(400, "Invalid post ID");
   const saves = getSaveCollection();
 
@@ -41,18 +88,7 @@ export const unsavePost = async (postId, userId) => {
   return result;
 };
 
-export const getUserSavedPosts = async (userId) => {
-  const saves = getSaveCollection();
-  const posts = getPostCollection();
-
-  const result = await saves.find({ userId: toObjectId(userId) }).toArray();
-  const postIds = result.map((r) => r.postId);
-  const savedPosts = await posts.find({ _id: { $in: postIds } }).toArray();
-
-  return { total: savedPosts.length, items: savedPosts };
-};
-
-export const isPostSavedByUser = async (postId, userId) => {
+export const isPostSavedByUser = async ({ postId, userId }) => {
   if (!ObjectId.isValid(postId)) throwError(400, "Invalid post ID");
   const saves = getSaveCollection();
 

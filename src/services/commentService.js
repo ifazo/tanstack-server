@@ -3,38 +3,52 @@ import { ObjectId } from "mongodb";
 import { throwError } from "../utils/errorHandler.js";
 
 const getPostCommentCollection = () => getDB().collection("post_comments");
-const getUserCollection = () => getDB().collection("users");
-const getPostCollection = () => getDB().collection("posts");
 
 const toObjectId = (id) => (id instanceof ObjectId ? id : new ObjectId(id));
 
 export const getCommentsByUserId = async (userId) => {
   const commentCollection = getPostCommentCollection();
-  const postCollection = getPostCollection();
 
   const result = await commentCollection
     .aggregate([
       {
         $match: { userId: toObjectId(userId) },
       },
+
       {
         $lookup: {
-          from: postCollection.collectionName,
+          from: "posts",
           localField: "postId",
           foreignField: "_id",
           as: "post",
         },
       },
+      { $unwind: "$post" },
+
       {
-        $unwind: "$post",
+        $lookup: {
+          from: "users",
+          localField: "post.userId",
+          foreignField: "_id",
+          as: "postUser",
+        },
       },
+      { $unwind: "$postUser" },
+
       {
         $project: {
           _id: 1,
           text: 1,
           createdAt: 1,
+
           "post._id": 1,
           "post.text": 1,
+          "post.createdAt": 1,
+
+          "postUser._id": 1,
+          "postUser.name": 1,
+          "postUser.image": 1,
+          "postUser.username": 1,
         },
       },
     ])
@@ -46,7 +60,6 @@ export const getCommentsByUserId = async (userId) => {
 
 export const getPostCommentsById = async (postId) => {
   const commentCollection = getPostCommentCollection();
-  const userCollection = getUserCollection();
 
   const result = await commentCollection
     .aggregate([
@@ -55,7 +68,7 @@ export const getPostCommentsById = async (postId) => {
       },
       {
         $lookup: {
-          from: userCollection.collectionName,
+          from: "users",
           localField: "userId",
           foreignField: "_id",
           as: "user",

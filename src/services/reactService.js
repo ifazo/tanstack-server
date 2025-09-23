@@ -6,6 +6,55 @@ const getPostReactCollection = () => getDB().collection("post_reacts");
 
 const toObjectId = (id) => (id instanceof ObjectId ? id : new ObjectId(id));
 
+export const getUserReacts = async (userId) => {
+  const reactCollection = getPostReactCollection();
+
+  const pipeline = [
+    {
+      $match: { userId: toObjectId(userId) },
+    },
+    {
+      $lookup: {
+        from: "posts",
+        localField: "postId",
+        foreignField: "_id",
+        as: "post",
+      },
+    },
+    { $unwind: "$post" },
+
+    {
+      $lookup: {
+        from: "users",
+        localField: "post.userId",
+        foreignField: "_id",
+        as: "postUser",
+      },
+    },
+    { $unwind: "$postUser" },
+
+    {
+      $project: {
+        _id: 1,
+        react: 1,
+        createdAt: 1,
+
+        "post._id": 1,
+        "post.text": 1,
+        "post.createdAt": 1,
+
+        "postUser._id": 1,
+        "postUser.name": 1,
+        "postUser.image": 1,
+        "postUser.username": 1,
+      },
+    },
+  ];
+
+  const result = await reactCollection.aggregate(pipeline).toArray();
+  return result;
+};
+
 export const addReactToPost = async ({ postId, userId, react }) => {
   const reactCollection = getPostReactCollection();
 
@@ -49,16 +98,6 @@ export const removeReactFromPost = async ({ userId, postId }) => {
   if (result.deletedCount === 0) {
     throwError(500, "Failed to remove like");
   }
-
-  return result;
-};
-
-export const getUserReacts = async (userId) => {
-  const reactCollection = getPostReactCollection();
-
-  const result = await reactCollection
-    .find({ userId: toObjectId(userId) })
-    .toArray();
 
   return result;
 };

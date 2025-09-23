@@ -7,45 +7,24 @@ const getUserCollection = () => getDB().collection("users");
 
 const toObjectId = (id) => (id instanceof ObjectId ? id : new ObjectId(id));
 
-const findMutualFriends = async (userId, otherId) => {
+export const isFriend = async ({userId, targetId}) => {
+  if (!ObjectId.isValid(userId) || !ObjectId.isValid(targetId))
+    throwError(400, "Invalid user id");
+
   const friendsCol = getFriendCollection();
-  const usersCol = getUserCollection();
-
   const uOid = toObjectId(userId);
-  const oOid = toObjectId(otherId);
+  const tOid = toObjectId(targetId);
 
-  const myFriendsDocs = await friendsCol
-    .find({
-      status: "accepted",
-      $or: [{ from: uOid }, { to: uOid }],
-    })
-    .toArray();
-  const myFriendIds = new Set(
-    myFriendsDocs.map((d) => String(d.from.equals(uOid) ? d.to : d.from))
-  );
-
-  const otherFriendsDocs = await friendsCol
-    .find({
-      status: "accepted",
-      $or: [{ from: oOid }, { to: oOid }],
-    })
-    .toArray();
-  const otherFriendIds = otherFriendsDocs.map((d) =>
-    String(d.from.equals(oOid) ? d.to : d.from)
-  );
-
-  const mutualIds = otherFriendIds.filter((fid) => myFriendIds.has(fid));
-  if (!mutualIds.length) return [];
-
-  const mutualUsers = await usersCol
-    .find({ _id: { $in: mutualIds.map((id) => toObjectId(id)) } })
-    .project({ name: 1, image: 1, username: 1 })
-    .toArray();
-
-  return mutualUsers;
+  const doc = await friendsCol.findOne({
+    $or: [
+      { from: uOid, to: tOid, status: "accepted" },
+      { from: tOid, to: uOid, status: "accepted" },
+    ],
+  });
+  return !!doc;
 };
 
-export const sendFriendRequest = async (fromUserId, toUserId) => {
+export const sendFriendRequest = async ({fromUserId, toUserId}) => {
   if (!ObjectId.isValid(fromUserId) || !ObjectId.isValid(toUserId))
     throwError(400, "Invalid user id");
   if (String(fromUserId) === String(toUserId))
@@ -83,7 +62,7 @@ export const sendFriendRequest = async (fromUserId, toUserId) => {
   return result;
 };
 
-export const acceptFriendRequest = async (requestId, userId) => {
+export const acceptFriendRequest = async ({requestId, userId}) => {
   if (!ObjectId.isValid(requestId) || !ObjectId.isValid(userId))
     throwError(400, "Invalid id");
 
@@ -98,16 +77,15 @@ export const acceptFriendRequest = async (requestId, userId) => {
   if (reqDoc.status === "accepted")
     return { message: "Already accepted", requestId };
 
-  const now = new Date();
-  await friendsCol.updateOne(
+  const result = await friendsCol.updateOne(
     { _id: rOid },
-    { $set: { status: "accepted", acceptedAt: now } }
+    { $set: { status: "accepted", acceptedAt: new Date() } }
   );
 
-  return { message: "Accepted", requestId };
+  return result;
 };
 
-export const declineFriendRequest = async (requestId, userId) => {
+export const declineFriendRequest = async ({requestId, userId}) => {
   if (!ObjectId.isValid(requestId) || !ObjectId.isValid(userId))
     throwError(400, "Invalid id");
 
@@ -122,13 +100,12 @@ export const declineFriendRequest = async (requestId, userId) => {
   if (reqDoc.status === "declined")
     return { message: "Already declined", requestId };
 
-  const now = new Date();
-  await friendsCol.updateOne(
+  const result = await friendsCol.updateOne(
     { _id: rOid },
-    { $set: { status: "declined", declinedAt: now } }
+    { $set: { status: "declined", declinedAt: new Date() } }
   );
 
-  return { message: "Declined", requestId };
+  return result;
 };
 
 export const cancelFriendRequest = async (requestId, actorId) => {
@@ -154,148 +131,244 @@ export const cancelFriendRequest = async (requestId, actorId) => {
 export const listFriends = async (userId) => {
   if (!ObjectId.isValid(userId)) throwError(400, "Invalid user id");
   const friendsCol = getFriendCollection();
-  const usersCol = getUserCollection();
   const uOid = toObjectId(userId);
 
-  const docs = await friendsCol
-    .find({ status: "accepted", $or: [{ from: uOid }, { to: uOid }] })
-    .toArray();
+  const result = await friendsCol.aggregate([
+    { 
+      $match: { 
+        status: "accepted", 
+        $or: [{ from: uOid }, { to: uOid }] 
+      } 
+    },
+    {
+      $addFields: {
+        otherUserId: {
+          $cond: [
+            { $eq: ["$from", uOid] },
+            "$to",
+            "$from"
+          ]
+        }
+      }
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "otherUserId",
+        foreignField: "_id",
+        as: "otherUser"
+      }
+    },
+    { $unwind: "$otherUser" },
+    {
+      $project: {
+        _id: "$otherUser._id",
+        name: "$otherUser.name",
+        image: "$otherUser.image",
+        username: "$otherUser.username",
+        friendedAt: "$acceptedAt"
+      }
+    }
+  ]).toArray();
 
-  if (!docs.length) return [];
-
-  const otherIds = docs.map((d) => (d.from.equals(uOid) ? d.to : d.from));
-  const uniqueOther = Array.from(new Set(otherIds.map((id) => String(id)))).map(
-    (s) => toObjectId(s)
-  );
-
-  const users = await usersCol
-    .find({ _id: { $in: uniqueOther } })
-    .project({ name: 1, image: 1, username: 1 })
-    .toArray();
-  const userMap = new Map(users.map((u) => [String(u._id), u]));
-
-  return Promise.all(
-    docs.map(async (d) => {
-      const other = d.from.equals(uOid) ? d.to : d.from;
-      const u = userMap.get(String(other));
-
-      return {
-        _id: u?._id,
-        name: u?.name || null,
-        image: u?.image || null,
-        username: u?.username || null,
-        friendedAt: d.acceptedAt || null,
-      };
-    })
-  );
+  return result;
 };
 
 export const getIncomingRequests = async (userId) => {
   if (!ObjectId.isValid(userId)) throwError(400, "Invalid user id");
   const friendsCol = getFriendCollection();
-  const users = getUserCollection();
   const uOid = toObjectId(userId);
 
-  const docs = await friendsCol
-    .find({ to: uOid, status: "pending" })
-    .sort({ createdAt: -1 })
-    .toArray();
-  if (!docs.length) return [];
+  const result = await friendsCol.aggregate([
+    { $match: { to: uOid, status: "pending" } },
+    { $sort: { createdAt: -1 } },
+    {
+      $lookup: {
+        from: "users",
+        localField: "from",
+        foreignField: "_id",
+        as: "fromUser"
+      }
+    },
+    { $unwind: "$fromUser" },
+    {
+      $project: {
+        _id: 1,
+        from: {
+          _id: "$fromUser._id",
+          name: "$fromUser.name",
+          image: "$fromUser.image",
+          username: "$fromUser.username"
+        },
+        createdAt: 1
+        // ⚠️ mutualFriends can’t be resolved inline unless you embed another $lookup/$facet
+        // If findMutualFriends is expensive, keep it in app logic.
+      }
+    }
+  ]).toArray();
 
-  const fromIds = docs.map((d) => d.from);
-  const fromUsers = await users
-    .find({ _id: { $in: fromIds } })
-    .project({ name: 1, image: 1, username: 1 })
-    .toArray();
-  const fromMap = new Map(fromUsers.map((u) => [String(u._id), u]));
-
-  return Promise.all(
-    docs.map(async (d) => {
-      const fromUser = fromMap.get(String(d.from)) || { _id: d.from };
-      const mutualFriends = await findMutualFriends(userId, d.from);
-
-      return {
-        _id: d._id,
-        from: fromUser,
-        createdAt: d.createdAt,
-        mutualFriends,
-      };
-    })
-  );
+  return result;
 };
 
 export const getSendingRequests = async (userId) => {
   if (!ObjectId.isValid(userId)) throwError(400, "Invalid user id");
   const friendsCol = getFriendCollection();
-  const users = getUserCollection();
   const uOid = toObjectId(userId);
 
-  const docs = await friendsCol
-    .find({ from: uOid, status: "pending" })
-    .sort({ createdAt: -1 })
-    .toArray();
-  if (!docs.length) return [];
+  const result = await friendsCol.aggregate([
+    { $match: { from: uOid, status: "pending" } },
+    { $sort: { createdAt: -1 } },
+    {
+      $lookup: {
+        from: "users",
+        localField: "to",
+        foreignField: "_id",
+        as: "toUser"
+      }
+    },
+    { $unwind: "$toUser" },
+    {
+      $project: {
+        _id: 1,
+        to: {
+          _id: "$toUser._id",
+          name: "$toUser.name",
+          image: "$toUser.image",
+          username: "$toUser.username"
+        },
+        createdAt: 1
+      }
+    }
+  ]).toArray();
 
-  const toIds = docs.map((d) => d.to);
-  const toUsers = await users
-    .find({ _id: { $in: toIds } })
-    .project({ name: 1, image: 1, username: 1 })
-    .toArray();
-  const toMap = new Map(toUsers.map((u) => [String(u._id), u]));
-
-  return Promise.all(
-    docs.map(async (d) => {
-      const toUser = toMap.get(String(d.to)) || { _id: d.to };
-      const mutualFriends = await findMutualFriends(userId, d.to);
-
-      return {
-        _id: d._id,
-        to: toUser,
-        createdAt: d.createdAt,
-        mutualFriends,
-      };
-    })
-  );
+  return result;
 };
 
-export const getSuggestions = async (userId, limit = 10) => {
+export const getSuggestions = async (userId) => {
   if (!ObjectId.isValid(userId)) throwError(400, "Invalid user id");
   const usersCol = getUserCollection();
-  const friendsCol = getFriendCollection();
-
   const uOid = toObjectId(userId);
 
-  const accepted = await friendsCol
-    .find({ status: "accepted", $or: [{ from: uOid }, { to: uOid }] })
-    .toArray();
-  const acceptedIds = accepted
-    .flatMap((d) => (d.from.equals(uOid) ? d.to : d.from))
-    .map((id) => String(id));
+  const result = await usersCol.aggregate([
+    // Exclude self
+    { $match: { _id: { $ne: uOid } } },
 
-  const pending = await friendsCol
-    .find({ status: "pending", $or: [{ from: uOid }, { to: uOid }] })
-    .toArray();
-  const pendingIds = pending
-    .flatMap((d) => (d.from.equals(uOid) ? d.to : d.from))
-    .map((id) => String(id));
+    // Lookup existing friendships between me and this user
+    {
+      $lookup: {
+        from: "friends",
+        let: { candidateId: "$_id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $or: [{ $eq: ["$from", uOid] }, { $eq: ["$to", uOid] }] },
+                  { $or: [
+                    { $eq: ["$from", "$$candidateId"] },
+                    { $eq: ["$to", "$$candidateId"] }
+                  ] }
+                ]
+              }
+            }
+          }
+        ],
+        as: "existingFriendship"
+      }
+    },
 
-  const exclude = new Set([String(uOid), ...acceptedIds, ...pendingIds]);
+    // Exclude accepted/pending ones
+    { $match: { existingFriendship: { $size: 0 } } },
 
-  const cursor = usersCol
-    .find({ _id: { $nin: Array.from(exclude).map((id) => toObjectId(id)) } })
-    .project({ name: 1, image: 1, username: 1 })
-    .sort({ createdAt: 1 })
-    .limit(parseInt(limit, 12));
+    // Lookup my accepted friends
+    {
+      $lookup: {
+        from: "friends",
+        pipeline: [
+          {
+            $match: {
+              status: "accepted",
+              $or: [{ from: uOid }, { to: uOid }]
+            }
+          }
+        ],
+        as: "myFriends"
+      }
+    },
 
-  const list = await cursor.toArray();
+    // Lookup candidate’s accepted friends
+    {
+      $lookup: {
+        from: "friends",
+        let: { candidateId: "$_id" },
+        pipeline: [
+          {
+            $match: {
+              status: "accepted",
+              $expr: {
+                $or: [
+                  { $eq: ["$from", "$$candidateId"] },
+                  { $eq: ["$to", "$$candidateId"] }
+                ]
+              }
+            }
+          }
+        ],
+        as: "theirFriends"
+      }
+    },
 
-  return Promise.all(
-    list.map(async (u) => {
-      const mutualFriends = await findMutualFriends(userId, u._id);
-      return {
-        ...u,
-        mutualFriends,
-      };
-    })
-  );
+    // Extract friend IDs
+    {
+      $addFields: {
+        myFriendIds: {
+          $map: {
+            input: "$myFriends",
+            as: "f",
+            in: { $cond: [{ $eq: ["$$f.from", uOid] }, "$$f.to", "$$f.from"] }
+          }
+        },
+        theirFriendIds: {
+          $map: {
+            input: "$theirFriends",
+            as: "f",
+            in: { $cond: [{ $eq: ["$$f.from", "$_id"] }, "$$f.to", "$$f.from"] }
+          }
+        }
+      }
+    },
+
+    // Compute intersection
+    {
+      $addFields: {
+        mutualIds: { $setIntersection: ["$myFriendIds", "$theirFriendIds"] }
+      }
+    },
+
+    // Lookup mutual friend user docs
+    {
+      $lookup: {
+        from: "users",
+        localField: "mutualIds",
+        foreignField: "_id",
+        as: "mutualFriends"
+      }
+    },
+
+    // Shape final output
+    {
+      $project: {
+        _id: 1,
+        name: 1,
+        image: 1,
+        username: 1,
+        mutualFriends: { _id: 1, name: 1, image: 1, username: 1 }
+      }
+    },
+
+    { $sort: { createdAt: 1 } },
+    { $limit: 12 }
+  ]).toArray();
+
+  return result;
 };

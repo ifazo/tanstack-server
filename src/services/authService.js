@@ -60,7 +60,7 @@ export const createSocialUser = async ({ email, name = "", image = "" }) => {
 /**
  * Handle login for social accounts
  */
-export const handleSocialLogin = async (user, email, name, image) => {
+export const handleSocialLogin = async ({user, email, name, image}) => {
   const userData = user
     ? {
         _id: user._id.toString(),
@@ -83,7 +83,7 @@ export const handleSocialLogin = async (user, email, name, image) => {
 /**
  * Handle login for regular accounts
  */
-export const handleRegularLogin = async (user, password) => {
+export const handleRegularLogin = async ({user, password}) => {
   if (!user) throwError(404, "User not found");
 
   if (user.password === "social") {
@@ -101,7 +101,7 @@ export const handleRegularLogin = async (user, password) => {
     name: user.name,
     image: user.image,
     email: user.email,
-    username: user.username || null,
+    username: user.username,
   };
 
   return {
@@ -114,14 +114,14 @@ export const handleRegularLogin = async (user, password) => {
 /**
  * Authenticate user (regular or social login)
  */
-export const authenticateUser = async (email, password, name = null, image = null) => {
+export const authenticateUser = async ({email, password, name = null, image = null}) => {
   if (!email || !password) throwError(400, "Email and password are required");
 
   const user = await getUserCollection().findOne({ email });
 
   return password === "social"
-    ? await handleSocialLogin(user, email, name, image)
-    : await handleRegularLogin(user, password);
+    ? await handleSocialLogin({user, email, name, image})
+    : await handleRegularLogin({user, password});
 };
 
 export const createUser = async (userData) => {
@@ -157,7 +157,7 @@ export const createUser = async (userData) => {
     name: user.name,
     image: user.image,
     email: user.email,
-    username: user.username || null,
+    username: user.username,
   };
 
   const token = jwt.sign(payload, JWT_SECRET_TOKEN);

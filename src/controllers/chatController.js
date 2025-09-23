@@ -12,7 +12,7 @@ export const openPersonalChat = async (req, res, next) => {
     const { receiverId } = req.query;
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
     if (!receiverId) return res.status(400).json({ message: "receiverId is required" });
-    const chat = await createPersonalChat(userId, receiverId);
+    const chat = await createPersonalChat({userId, receiverId});
     res.status(200).json(chat);
   } catch (e) {
     next(e);
@@ -56,25 +56,24 @@ export const postMessage = async (req, res, next) => {
   }
 };
 
-export const getMessages = async (req, res, next) => {
+export const userChatList = async (req, res, next) => {
   try {
-    const { chatId } = req.params;
-    const { skip, limit, sort } = req.query;
     const userId = req.user?._id;
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
-
-    const data = await getChatMessages(chatId, userId, { skip, limit, sort });
+    const data = await getUserChats(userId);
     res.status(200).json(data);
   } catch (e) {
     next(e);
   }
 };
 
-export const userChatList = async (req, res, next) => {
+export const getMessages = async (req, res, next) => {
   try {
     const userId = req.user?._id;
+    const { chatId } = req.params;
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
-    const data = await getUserChats(userId);
+
+    const data = await getChatMessages({chatId, userId});
     res.status(200).json(data);
   } catch (e) {
     next(e);

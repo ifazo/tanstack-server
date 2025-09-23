@@ -7,7 +7,8 @@ import {
 
 export const getUsers = async (req, res, next) => {
   try {
-    const users = await findUsersService();
+    const {q} = req.query;
+    const users = await findUsersService({ q });
     res.status(200).json(users);
   } catch (error) {
     next(error);

@@ -34,7 +34,6 @@ export const createPost = async (req, res, next) => {
 export const getAllPosts = async (req, res, next) => {
   try {
     const queryParams = req.query;
-
     const result = await getAllPostsService(queryParams);
     res.status(200).json(result);
   } catch (error) {

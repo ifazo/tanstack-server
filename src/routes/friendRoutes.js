@@ -7,13 +7,16 @@ import {
   sentRequests,
   suggestions,
   friendsList,
-  cancelRequest
+  cancelRequest,
+  checkFriendship
 } from "../controllers/friendController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
 router.get("/", authMiddleware, friendsList);
+
+router.get("/check", authMiddleware, checkFriendship);
 
 router.post("/requests", authMiddleware, sendRequest);
 

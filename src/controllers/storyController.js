@@ -71,7 +71,7 @@ export const deleteStory = async (req, res, next) => {
       });
     }
 
-    const result = await deleteStoryService(storyId, userId);
+    const result = await deleteStoryService({storyId, userId});
     res.status(200).json(result);
   } catch (error) {
     next(error);

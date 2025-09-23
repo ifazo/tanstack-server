@@ -5,11 +5,28 @@ import { throwError } from "../utils/errorHandler.js";
 
 const getUserCollection = () => getDB().collection("users");
 
-export const findUsers = async () => {
+export const findUsers = async ({ q }) => {
   const userCollection = getUserCollection();
-  const users = await userCollection.find({}).toArray();
+
+  if (!q || !q.trim()) {
+    return [];
+  }
+
+  const query = {
+    $or: [
+      { name: { $regex: q, $options: "i" } },
+      { username: { $regex: q, $options: "i" } },
+    ],
+  };
+
+  const users = await userCollection
+    .find(query, {
+      projection: { _id: 1, name: 1, image: 1, username: 1 },
+    })
+    .toArray();
+
   return users;
-}
+};
 
 export const findUserById = async (userId) => {
   const userCollection = getUserCollection();

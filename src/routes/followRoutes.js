@@ -5,7 +5,6 @@ import {
   checkFollowing,
   followers,
   following,
-  suggestions,
 } from "../controllers/followController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 
@@ -20,7 +19,5 @@ router.get("/check", authMiddleware, checkFollowing);
 router.get("/followers", authMiddleware, followers);
 
 router.get("/following", authMiddleware, following);
-
-router.get("/suggestions", authMiddleware, suggestions);
 
 export default router;

@@ -6,7 +6,7 @@ import {
 export const authenticateUser = async (req, res, next) => {
   try {
     const { email, password, name, image } = req.body;
-    const result = await authServiceAuthenticate(email, password, name, image);
+    const result = await authServiceAuthenticate({email, password, name, image});
     res.status(200).json(result);
   } catch (error) {
     console.error("Authentication error:", error);

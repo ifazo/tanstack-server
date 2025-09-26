@@ -147,10 +147,6 @@ export const updatePostComment = async ({ commentId, userId, text }) => {
 export const deletePostComment = async (commentId, userId) => {
   const commentCollection = getPostCommentCollection();
 
-  if (!ObjectId.isValid(commentId)) {
-    throwError(400, "Invalid comment ID format");
-  }
-
   const existingComment = await commentCollection.findOne({
     _id: toObjectId(commentId),
     userId: toObjectId(userId),

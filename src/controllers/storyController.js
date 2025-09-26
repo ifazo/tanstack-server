@@ -1,3 +1,4 @@
+import { ObjectId } from "mongodb";
 import {
   createStory as createStoryService,
   getFriendsStories as getFriendsStoriesService,
@@ -9,10 +10,16 @@ export const createStory = async (req, res, next) => {
   try {
     const userId = req.user?._id;
     const { media, type } = req.body;
-
-    if (!userId || !media || !type) {
+    
+    if (!userId || !ObjectId.isValid(userId)) {
       return res.status(400).json({
-        message: "userId, media, and type are required",
+        message: "userId is required",
+      });
+    }
+
+    if (!media || !type) {
+      return res.status(400).json({
+        message: "media and type are required",
       });
     }
 
@@ -32,7 +39,7 @@ export const getFriendsStories = async (req, res, next) => {
   try {
     const userId = req.user?._id;
 
-    if (!userId) {
+    if (!userId || !ObjectId.isValid(userId)) {
       return res.status(400).json({
         message: "userId is required",
       });
@@ -48,7 +55,8 @@ export const getFriendsStories = async (req, res, next) => {
 export const getUserStories = async (req, res, next) => {
   try {
     const userId = req.user?._id;
-    if (!userId) {
+
+    if (!userId || !ObjectId.isValid(userId)) {
       return res.status(400).json({
         message: "userId is required",
       });
@@ -65,7 +73,7 @@ export const deleteStory = async (req, res, next) => {
     const userId = req.user?._id;
     const { storyId } = req.params;
 
-    if (!storyId || !userId) {
+    if (!storyId || !userId || !ObjectId.isValid(storyId) || !ObjectId.isValid(userId)) {
       return res.status(400).json({
         message: "storyId and userId are required",
       });

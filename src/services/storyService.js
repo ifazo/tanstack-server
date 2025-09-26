@@ -3,37 +3,51 @@ import { ObjectId } from "mongodb";
 import { throwError } from "../utils/errorHandler.js";
 
 const getStoryCollection = () => getDB().collection("stories");
-const getUserCollection = () => getDB().collection("users");
+const getFriendCollection = () => getDB().collection("friends");
 
 const toObjectId = (id) => (id instanceof ObjectId ? id : new ObjectId(id));
 
 export const getFriendsStories = async (userId) => {
-  const userCollection = getUserCollection();
+  const friendsCollection = getFriendCollection();
   const storyCollection = getStoryCollection();
   const uOid = toObjectId(userId);
 
   const pipeline = [
-    { $match: { _id: uOid } },
-    { $project: { friends: 1 } },
-
+    {
+      $match: {
+        status: "accepted",
+        $or: [{ from: uOid }, { to: uOid }],
+      },
+    },
+    {
+      $addFields: {
+        friendId: {
+          $cond: [{ $eq: ["$from", uOid] }, "$to", "$from"],
+        },
+      },
+    },
     {
       $lookup: {
         from: storyCollection.collectionName,
-        let: { friendsIds: "$friends" },
+        let: { fid: "$friendId" },
         pipeline: [
-          { $match: { $expr: { $in: ["$userId", "$$friendsIds"] } } },
+          {
+            $match: {
+              $expr: { $eq: ["$userId", "$$fid"] },
+            },
+          },
           { $sort: { createdAt: -1 } },
         ],
         as: "stories",
       },
     },
-    { $project: { stories: 1 } },
+    { $unwind: "$stories" },
+    { $replaceRoot: { newRoot: "$stories" } },
+    { $sort: { createdAt: -1 } },
   ];
 
-  const result = await userCollection.aggregate(pipeline).next();
-  if (!result) throwError(404, "User not found");
-
-  return result.stories || [];
+  const stories = await friendsCollection.aggregate(pipeline).toArray();
+  return stories;
 };
 
 export const getUserStories = async (userId) => {

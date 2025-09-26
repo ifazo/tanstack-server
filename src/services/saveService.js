@@ -55,7 +55,6 @@ export const getUserSavedPosts = async (userId) => {
 };
 
 export const savePost = async ({postId, userId}) => {
-  if (!ObjectId.isValid(postId)) throwError(400, "Invalid post ID");
   const saves = getSaveCollection();
 
   const existing = await saves.findOne({ postId: toObjectId(postId), userId: toObjectId(userId) });
@@ -75,7 +74,6 @@ export const savePost = async ({postId, userId}) => {
 };
 
 export const unsavePost = async ({ postId, userId }) => {
-  if (!ObjectId.isValid(postId)) throwError(400, "Invalid post ID");
   const saves = getSaveCollection();
 
   const result = await saves.deleteOne({
@@ -89,7 +87,6 @@ export const unsavePost = async ({ postId, userId }) => {
 };
 
 export const isPostSavedByUser = async ({ postId, userId }) => {
-  if (!ObjectId.isValid(postId)) throwError(400, "Invalid post ID");
   const saves = getSaveCollection();
 
   const existing = await saves.findOne({

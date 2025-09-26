@@ -1,16 +1,25 @@
+import { ObjectId } from "mongodb";
 import {
   savePost,
   unsavePost,
   getUserSavedPosts,
-  isPostSavedByUser
-} from '../services/saveService.js';
+  isPostSavedByUser,
+} from "../services/saveService.js";
 
 export const addSave = async (req, res, next) => {
   try {
     const userId = req.user?._id;
     const { postId } = req.params;
-    if (!postId || !userId) return res.status(400).json({ message: 'postId and userId are required' });
-    const result = await savePost({postId, userId});
+    if (
+      !postId ||
+      !userId ||
+      !ObjectId.isValid(postId) ||
+      !ObjectId.isValid(userId)
+    )
+      return res
+        .status(400)
+        .json({ message: "postId and userId are required" });
+    const result = await savePost({ postId, userId });
     res.status(201).json(result);
   } catch (e) {
     next(e);
@@ -21,8 +30,16 @@ export const removeSave = async (req, res, next) => {
   try {
     const userId = req.user?._id;
     const { postId } = req.params;
-    if (!postId || !userId) return res.status(400).json({ message: 'postId and userId are required' });
-    const result = await unsavePost({postId, userId});
+    if (
+      !postId ||
+      !userId ||
+      !ObjectId.isValid(postId) ||
+      !ObjectId.isValid(userId)
+    )
+      return res
+        .status(400)
+        .json({ message: "postId and userId are required" });
+    const result = await unsavePost({ postId, userId });
     res.status(200).json(result);
   } catch (e) {
     next(e);
@@ -32,7 +49,9 @@ export const removeSave = async (req, res, next) => {
 export const listUserSaves = async (req, res, next) => {
   try {
     const userId = req.user?._id;
-    if (!userId) return res.status(400).json({ message: 'userId required' });
+    if (!userId || !ObjectId.isValid(userId))
+      return res.status(400).json({ message: "userId required" });
+
     const result = await getUserSavedPosts(userId, req.query);
     res.status(200).json(result);
   } catch (e) {
@@ -44,11 +63,20 @@ export const checkSaved = async (req, res, next) => {
   try {
     const userId = req.user?._id;
     const { postId } = req.params;
-    if (!postId || !userId) return res.status(400).json({ message: 'postId and userId are required' });
-    const result = await isPostSavedByUser({postId, userId});
+    if (
+      !postId ||
+      !userId ||
+      !ObjectId.isValid(postId) ||
+      !ObjectId.isValid(userId)
+    )
+      return res
+        .status(400)
+        .json({ message: "postId and userId are required" });
+    const result = await isPostSavedByUser({ postId, userId });
     res.status(200).json(result);
   } catch (e) {
-    if (e.message === 'Invalid post ID') return res.status(400).json({ message: e.message });
+    if (e.message === "Invalid post ID")
+      return res.status(400).json({ message: e.message });
     next(e);
   }
 };

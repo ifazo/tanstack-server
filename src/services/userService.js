@@ -5,6 +5,8 @@ import { throwError } from "../utils/errorHandler.js";
 
 const getUserCollection = () => getDB().collection("users");
 
+const toObjectId = (id) => (id instanceof ObjectId ? id : new ObjectId(id));
+
 export const findUsers = async ({ q }) => {
   const userCollection = getUserCollection();
 
@@ -30,22 +32,76 @@ export const findUsers = async ({ q }) => {
 
 export const findUserById = async (userId) => {
   const userCollection = getUserCollection();
-  const user = await userCollection.findOne({ _id: new ObjectId(userId) });
-  
-  if (!user) {
-    throwError(404, 'User not found');
-  }
-  
+
+  const oid = toObjectId(userId);
+
+  const [user] = await userCollection.aggregate([
+    { $match: { _id: oid } },
+
+    // friends count
+    {
+      $lookup: {
+        from: "friends",
+        let: { uid: "$_id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$status", "accepted"] },
+                  { $or: [{ $eq: ["$from", "$$uid"] }, { $eq: ["$to", "$$uid"] }] }
+                ]
+              }
+            }
+          },
+          { $count: "count" }
+        ],
+        as: "friendsCountArr"
+      }
+    },
+
+    // followers count
+    {
+      $lookup: {
+        from: "follows",
+        let: { uid: "$_id" },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$following", "$$uid"] } } },
+          { $count: "count" }
+        ],
+        as: "followersCountArr"
+      }
+    },
+
+    // add computed fields
+    {
+      $addFields: {
+        friendsCount: { $ifNull: [{ $arrayElemAt: ["$friendsCountArr.count", 0] }, 0] },
+        followersCount: { $ifNull: [{ $arrayElemAt: ["$followersCountArr.count", 0] }, 0] }
+      }
+    },
+
+    {
+      $project: {
+        friendsCountArr: 0,
+        followersCountArr: 0,
+        password: 0
+      }
+    }
+  ]).toArray();
+
+  if (!user) throwError(404, 'User not found');
+
   return user;
 };
 
-export const updateUser = async (userId, updateData) => {
+export const updateUser = async ({userId, userData }) => {
   const userCollection = getUserCollection();
   
-  updateData.updatedAt = new Date();
+  userData .updatedAt = new Date();
   const result = await userCollection.updateOne(
-    { _id: new ObjectId(userId) },
-    { $set: updateData }
+    { _id: toObjectId(userId) },
+    { $set: userData  }
   );
 
   if (result.modifiedCount === 0) {
@@ -59,7 +115,7 @@ export const deleteUser = async (userId) => {
   const userCollection = getUserCollection();
   
   const result = await userCollection.deleteOne({
-    _id: new ObjectId(userId),
+    _id: toObjectId(userId),
   });
 
   if (result.deletedCount === 0) {

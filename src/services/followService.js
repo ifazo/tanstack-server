@@ -7,8 +7,6 @@ const getFollowCollection = () => getDB().collection("follows");
 const toObjectId = (id) => (id instanceof ObjectId ? id : new ObjectId(id));
 
 export const followUser = async ({userId, targetId}) => {
-  if (!ObjectId.isValid(userId) || !ObjectId.isValid(targetId))
-    throwError(400, "Invalid userId or targetId");
   if (userId === targetId) throwError(400, "Cannot follow yourself");
 
   const follows = getFollowCollection();
@@ -24,8 +22,6 @@ export const followUser = async ({userId, targetId}) => {
 };
 
 export const unfollowUser = async ({userId, targetId}) => {
-  if (!ObjectId.isValid(userId) || !ObjectId.isValid(targetId))
-    throwError(400, "Invalid user id");
   const follows = getFollowCollection();
   const uOid = toObjectId(userId);
   const tOid = toObjectId(targetId);
@@ -35,7 +31,6 @@ export const unfollowUser = async ({userId, targetId}) => {
 };
 
 export const getFollowers = async (userId) => {
-  if (!ObjectId.isValid(userId)) throwError(400, "Invalid user id");
   const follows = getFollowCollection();
   const uOid = toObjectId(userId);
 
@@ -69,7 +64,6 @@ export const getFollowers = async (userId) => {
 };
 
 export const getFollowing = async (userId) => {
-  if (!ObjectId.isValid(userId)) throwError(400, "Invalid user id");
   const follows = getFollowCollection();
   const uOid = toObjectId(userId);
 
@@ -103,7 +97,6 @@ export const getFollowing = async (userId) => {
 };
 
 export const isFollowing = async ({userId, targetId}) => {
-  if (!ObjectId.isValid(userId) || !ObjectId.isValid(targetId)) return false;
   const follows = getFollowCollection();
   const uOid = toObjectId(userId);
   const tOid = toObjectId(targetId);

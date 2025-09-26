@@ -1,3 +1,4 @@
+import { ObjectId } from 'mongodb';
 import { 
   findUserById as findUserByIdService,
   updateUser as updateUserService,
@@ -19,9 +20,9 @@ export const getUserById = async (req, res, next) => {
   try {
     const userId = req.user?._id;
 
-    if (!userId) {
+    if (!userId || !ObjectId.isValid(userId)) {
       return res.status(400).json({
-        message: "userId is required",
+        message: "userId is required and must be a valid id",
       });
     }
 
@@ -38,9 +39,9 @@ export const updateUser = async (req, res, next) => {
     const userId = req.user?._id;
     const userData = req.body;
 
-    if (!userId) {
+    if (!userId || !ObjectId.isValid(userId)) {
       return res.status(400).json({
-        message: "userId is required",
+        message: "userId is required and must be a valid id",
       });
     }
 
@@ -50,7 +51,7 @@ export const updateUser = async (req, res, next) => {
       });
     }
 
-    const result = await updateUserService(userId, userData);
+    const result = await updateUserService({userId, userData});
     res.status(200).json(result);
   } catch (error) {
     next(error);
@@ -61,9 +62,9 @@ export const deleteUser = async (req, res, next) => {
   try {
     const userId = req.user?._id;
 
-    if (!userId) {
+    if (!userId || !ObjectId.isValid(userId)) {
       return res.status(400).json({
-        message: "userId is required",
+        message: "userId is required and must be a valid id",
       });
     }
 

@@ -10,43 +10,56 @@ const toObjectId = (id) => (id instanceof ObjectId ? id : new ObjectId(id));
 export const getFriendsStories = async (userId) => {
   const friendsCollection = getFriendCollection();
   const storyCollection = getStoryCollection();
+  
   const uOid = toObjectId(userId);
 
-  const pipeline = [
-    {
-      $match: {
-        status: "accepted",
-        $or: [{ from: uOid }, { to: uOid }],
-      },
-    },
-    {
-      $addFields: {
-        friendId: {
-          $cond: [{ $eq: ["$from", uOid] }, "$to", "$from"],
-        },
-      },
-    },
-    {
-      $lookup: {
-        from: storyCollection.collectionName,
-        let: { fid: "$friendId" },
-        pipeline: [
-          {
-            $match: {
-              $expr: { $eq: ["$userId", "$$fid"] },
-            },
-          },
-          { $sort: { createdAt: -1 } },
-        ],
-        as: "stories",
-      },
-    },
-    { $unwind: "$stories" },
-    { $replaceRoot: { newRoot: "$stories" } },
-    { $sort: { createdAt: -1 } },
-  ];
+  const friends = await friendsCollection
+    .find({
+      status: "accepted",
+      $or: [{ from: uOid }, { to: uOid }],
+    })
+    .toArray();
 
-  const stories = await friendsCollection.aggregate(pipeline).toArray();
+  const friendIds = friends.map(f =>
+    f.from.equals(uOid) ? f.to : f.from
+  );
+
+  const pipeline = [
+  { $match: { userId: { $in: friendIds } } },
+  { $sort: { createdAt: -1 } },
+  {
+    $lookup: {
+      from: "users",
+      localField: "userId",
+      foreignField: "_id",
+      as: "user",
+      pipeline: [
+        {
+          $project: {
+            name: 1,
+            username: 1,
+            image: 1,
+          },
+        },
+      ],
+    },
+  },
+  { $unwind: "$user" },
+  {
+    $project: {
+      _id: 1,
+      userId: 1,
+      media: 1,
+      type: 1,
+      createdAt: 1,
+      user: 1,
+    },
+  },
+];
+
+
+  const stories = await storyCollection.aggregate(pipeline).toArray();
+
   return stories;
 };
 

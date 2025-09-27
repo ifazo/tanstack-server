@@ -10,7 +10,6 @@ const toObjectId = (id) => (id instanceof ObjectId ? id : new ObjectId(id));
 export const getFriendsStories = async (userId) => {
   const friendsCollection = getFriendCollection();
   const storyCollection = getStoryCollection();
-  
   const uOid = toObjectId(userId);
 
   const friends = await friendsCollection
@@ -20,47 +19,57 @@ export const getFriendsStories = async (userId) => {
     })
     .toArray();
 
-  const friendIds = friends.map(f =>
+  const friendIds = friends.map((f) =>
     f.from.equals(uOid) ? f.to : f.from
   );
 
+  if (friendIds.length === 0) return [];
+
   const pipeline = [
-  { $match: { userId: { $in: friendIds } } },
-  { $sort: { createdAt: -1 } },
-  {
-    $lookup: {
-      from: "users",
-      localField: "userId",
-      foreignField: "_id",
-      as: "user",
-      pipeline: [
-        {
-          $project: {
-            name: 1,
-            username: 1,
-            image: 1,
+    { $match: { userId: { $in: friendIds } } },
+    { $sort: { createdAt: -1 } },
+    {
+      $group: {
+        _id: "$userId",
+        stories: {
+          $push: {
+            _id: "$_id",
+            media: "$media",
+            type: "$type",
+            createdAt: "$createdAt",
           },
         },
-      ],
+        updatedAt: { $first: "$createdAt" },
+      },
     },
-  },
-  { $unwind: "$user" },
-  {
-    $project: {
-      _id: 1,
-      userId: 1,
-      media: 1,
-      type: 1,
-      createdAt: 1,
-      user: 1,
+    {
+      $lookup: {
+        from: "users",
+        localField: "_id",
+        foreignField: "_id",
+        as: "user",
+        pipeline: [
+          {
+            $project: { name: 1, username: 1, image: 1 },
+          },
+        ],
+      },
     },
-  },
-];
+    { $unwind: "$user" },
+    {
+      $project: {
+        userId: "$_id",
+        user: 1,
+        stories: 1,
+        updatedAt: 1,
+        _id: 0,
+      },
+    },
+    { $sort: { updatedAt: -1 } },
+  ];
 
-
-  const stories = await storyCollection.aggregate(pipeline).toArray();
-
-  return stories;
+  const result = await storyCollection.aggregate(pipeline).toArray();
+  return result;
 };
 
 export const getUserStories = async (userId) => {

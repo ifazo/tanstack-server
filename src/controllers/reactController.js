@@ -1,3 +1,4 @@
+import { ObjectId } from "mongodb";
 import {
   addReactToPost as addReactToPostService,
   removeReactFromPost as removeReactFromPostService,
@@ -11,7 +12,7 @@ export const addReactToPost = async (req, res, next) => {
     const { postId } = req.params;
     const { react } = req.query;
 
-    if (!postId || !userId || !react) {
+    if (!postId || !userId || !ObjectId.isValid(postId) || !ObjectId.isValid(userId) || !react) {
       return res.status(400).json({
         message: "postId, userId and react are required",
       });
@@ -29,7 +30,7 @@ export const removeReactFromPost = async (req, res, next) => {
     const userId = req.user._id;
     const { postId } = req.params;
 
-    if (!postId || !userId) {
+    if (!postId || !userId || !ObjectId.isValid(postId) || !ObjectId.isValid(userId)) {
       return res.status(400).json({
         message: "postId and userId are required",
       });
@@ -46,7 +47,7 @@ export const getUserReacts = async (req, res, next) => {
   try {
     const userId = req.user._id;
 
-    if (!userId) {
+    if (!userId || !ObjectId.isValid(userId)) {
       return res.status(400).json({
         message: "userId is required",
       });

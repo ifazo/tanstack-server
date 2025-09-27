@@ -38,7 +38,6 @@ export const findUserById = async (userId) => {
   const [user] = await userCollection.aggregate([
     { $match: { _id: oid } },
 
-    // friends count
     {
       $lookup: {
         from: "friends",
@@ -60,7 +59,6 @@ export const findUserById = async (userId) => {
       }
     },
 
-    // followers count
     {
       $lookup: {
         from: "follows",
@@ -73,7 +71,6 @@ export const findUserById = async (userId) => {
       }
     },
 
-    // add computed fields
     {
       $addFields: {
         friendsCount: { $ifNull: [{ $arrayElemAt: ["$friendsCountArr.count", 0] }, 0] },
@@ -123,17 +120,4 @@ export const deleteUser = async (userId) => {
   }
   
   return result;
-};
-
-export const findUserByEmail = async (email) => {
-  const userCollection = getUserCollection();
-  return await userCollection.findOne({ email });
-};
-
-export const hashPassword = async (password) => {
-  return await bcrypt.hash(password, 10);
-};
-
-export const verifyPassword = async (plainPassword, hashedPassword) => {
-  return await bcrypt.compare(plainPassword, hashedPassword);
 };

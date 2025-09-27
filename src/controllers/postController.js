@@ -1,3 +1,4 @@
+import { ObjectId } from "mongodb";
 import {
   createPost as createPostService,
   getAllPosts as getAllPostsService,
@@ -12,7 +13,7 @@ export const createPost = async (req, res, next) => {
     const userId = req.user?._id;
     const { text, images = [], mentions = [], tags = [] } = req.body;
 
-    if (!userId || !text) {
+    if (!userId || !ObjectId.isValid(userId) || !text) {
       return res.status(400).json({
         message: "userId & text are required",
       });
@@ -45,7 +46,7 @@ export const getPostsByUserId = async (req, res, next) => {
   try {
     const userId = req.user?._id;
 
-    if (!userId) {
+    if (!userId || !ObjectId.isValid(userId)) {
       return res.status(400).json({
         message: "userId is required",
       });
@@ -62,7 +63,7 @@ export const getPostById = async (req, res, next) => {
   try {
     const { postId } = req.params;
 
-    if (!postId) {
+    if (!postId || !ObjectId.isValid(postId)) {
       return res.status(400).json({
         message: "postId is required",
       });
@@ -80,7 +81,7 @@ export const updatePost = async (req, res, next) => {
     const { postId } = req.params;
     const { text, images = [], mentions = [], tags = [] } = req.body;
 
-    if (!postId || !text) {
+    if (!postId || !ObjectId.isValid(postId) || !text) {
       return res.status(400).json({
         message: "postId and text are required",
       });
@@ -104,7 +105,7 @@ export const deletePost = async (req, res, next) => {
   try {
     const { postId } = req.params;
 
-    if (!postId) {
+    if (!postId || !ObjectId.isValid(postId)) {
       return res.status(400).json({
         message: "postId is required",
       });

@@ -1,3 +1,4 @@
+import { ObjectId } from "mongodb";
 import {
   addPostComment as addPostCommentService,
   getPostCommentsById as getPostCommentsByIdService,
@@ -10,7 +11,7 @@ export const getCommentsByUserId = async (req, res, next) => {
   try {
     const userId = req.user?._id;
 
-    if (!userId) {
+    if (!userId || !ObjectId.isValid(userId)) {
       return res.status(400).json({
         message: "userId is required",
       });
@@ -27,7 +28,7 @@ export const getPostCommentsById = async (req, res, next) => {
   try {
     const { postId } = req.params;
 
-    if (!postId) {
+    if (!postId || !ObjectId.isValid(postId)) {
       return res.status(400).json({
         message: "postId is required",
       });
@@ -45,8 +46,13 @@ export const addPostComment = async (req, res, next) => {
     const userId = req.user?._id;
     const { postId } = req.params;
     const { text } = req.body;
-    
-    if (!postId || !userId) {
+
+    if (
+      !postId ||
+      !userId ||
+      !ObjectId.isValid(postId) ||
+      !ObjectId.isValid(userId)
+    ) {
       return res.status(400).json({
         message: "postId and userId are required",
       });
@@ -77,7 +83,12 @@ export const updatePostComment = async (req, res, next) => {
     const { commentId } = req.params;
     const { text } = req.body;
 
-    if (!commentId || !userId) {
+    if (
+      !commentId ||
+      !userId ||
+      !ObjectId.isValid(commentId) ||
+      !ObjectId.isValid(userId)
+    ) {
       return res.status(400).json({
         message: "commentId and userId are required",
       });
@@ -107,9 +118,14 @@ export const deletePostComment = async (req, res, next) => {
     const userId = req.user?._id;
     const { commentId } = req.params;
 
-    if (!commentId || !userId) {
+    if (
+      !commentId ||
+      !userId ||
+      !ObjectId.isValid(commentId) ||
+      !ObjectId.isValid(userId)
+    ) {
       return res.status(400).json({
-        message: "commentId is required",
+        message: "commentId and userId are required",
       });
     }
 

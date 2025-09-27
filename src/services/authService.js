@@ -22,7 +22,6 @@ const generateUniqueUserName = async (baseInput) => {
   let i = 0;
   while (await col.findOne({ username: candidate })) {
     i += 1;
-    // append number with underscore to keep readable: e.g. name_2
     const suffix = `_${i}`;
     const maxBaseLen = 30 - suffix.length;
     candidate = (base.slice(0, maxBaseLen) || `user${Date.now()}`) + suffix;
@@ -166,4 +165,29 @@ export const createUser = async (userData) => {
     token,
     user: payload
   };
+};
+
+export const setUserOnline = async (userId) => {
+  if (!ObjectId.isValid(userId)) return null;
+  const userCollection = getUserCollection();
+  await userCollection.updateOne(
+    { _id: toObjectId(userId) },
+    { $set: { isActive: true }, $unset: { lastActive: "" } }
+  );
+  return true;
+};
+
+export const setUserOffline = async (userId) => {
+  if (!ObjectId.isValid(userId)) return null;
+  const userCollection = getUserCollection();
+  const now = new Date();
+  await userCollection.updateOne(
+    { _id: toObjectId(userId) },
+    { $set: { isActive: false, lastActive: now, updatedAt: now } }
+  );
+  return true;
+};
+
+export const setUserActiveState = async (userId, isActive) => {
+  return isActive ? setUserOnline(userId) : setUserOffline(userId);
 };
